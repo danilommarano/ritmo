@@ -4,6 +4,7 @@ Video processing utilities using FFmpeg
 import ffmpeg
 import os
 import tempfile
+import subprocess
 from pathlib import Path
 
 
@@ -74,37 +75,29 @@ def export_video_with_counter(video_path, start_time, end_time, rhythm_grid=None
             beat_duration = 60.0 / bpm
             beats_per_bar = rhythm_grid.beats_per_bar
             offset = rhythm_grid.offset_start
-            
-            # Create drawtext filter for counter
-            # This will show: Bar number | Beat number
-            # Formula: bar = floor((t - offset) / bar_duration)
-            #          beat = floor(((t - offset) % bar_duration) / beat_duration) + 1
-            
             bar_duration = beat_duration * beats_per_bar
             
-            # Build the text expression
-            # Show "Bar X | Beat Y" or "-- | --" if before offset
-            text_expr = (
-                f"'Bar: ' + "
-                f"(if(gte(t,{offset}), "
-                f"floor((t-{offset})/{bar_duration})+1, "
-                f"'--')) + "
-                f"' | Beat: ' + "
-                f"(if(gte(t,{offset}), "
-                f"floor(mod(t-{offset},{bar_duration})/{beat_duration})+1, "
-                f"'--'))"
-            )
+            # Build the drawtext filter string manually for proper escaping
+            # The text expression needs to calculate bar and beat numbers dynamically
+            bar_calc = f"floor((t-{offset})/{bar_duration})+1"
+            beat_calc = f"floor(mod(t-{offset},{bar_duration})/{beat_duration})+1"
             
-            # Add text overlay with counter
-            video = input_video.video.drawtext(
-                text=text_expr,
+            # Use FFmpeg's text expansion with proper escaping
+            # %{eif:expr:d} evaluates expression and formats as decimal
+            text_string = f"Compasso: %{{eif:{bar_calc}:d}} | Batida: %{{eif:{beat_calc}:d}}"
+            
+            # Apply drawtext filter using filter method for better control
+            video = input_video.video.filter(
+                'drawtext',
+                text=text_string,
                 fontsize=48,
                 fontcolor='white',
                 box=1,
                 boxcolor='black@0.5',
                 boxborderw=10,
-                x='(w-text_w)/2',  # Center horizontally
-                y='h-th-50'  # 50px from bottom
+                x='(w-text_w)/2',
+                y='h-th-50',
+                enable=f'gte(t,{offset})'
             )
             
             audio = input_video.audio
@@ -134,8 +127,12 @@ def export_video_with_counter(video_path, start_time, end_time, rhythm_grid=None
             **{'b:v': '2M', 'b:a': '192k'}
         )
         
+        # Log the command for debugging
+        cmd = ffmpeg.compile(output, overwrite_output=True)
+        print(f"FFmpeg command: {' '.join(cmd)}")
+        
         # Run ffmpeg
-        ffmpeg.run(output, overwrite_output=True, quiet=True)
+        ffmpeg.run(output, overwrite_output=True, quiet=False)
         
         return output_path
         
