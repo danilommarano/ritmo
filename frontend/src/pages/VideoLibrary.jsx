@@ -50,26 +50,33 @@ function VideoLibrary() {
       ) : (
         <div className="video-grid">
           {videos.map((video) => (
-            <Link key={video.id} to={`/video/${video.id}`} className="video-card">
-              <div className="video-thumbnail">
-                {video.thumbnail ? (
-                  <img src={video.thumbnail} alt={video.title} />
-                ) : (
-                  <div className="placeholder-thumbnail">
-                    <span>📹</span>
-                  </div>
-                )}
+            <div key={video.id} className="video-card">
+              <Link to={`/video/${video.id}`} className="video-card-link">
+                <div className="video-thumbnail">
+                  {video.thumbnail ? (
+                    <img src={video.thumbnail} alt={video.title} />
+                  ) : (
+                    <div className="placeholder-thumbnail">
+                      <span>📹</span>
+                    </div>
+                  )}
+                </div>
+                <div className="video-info">
+                  <h3>{video.title}</h3>
+                  {video.description && (
+                    <p className="video-description">{video.description}</p>
+                  )}
+                  {video.duration && (
+                    <span className="video-duration">{formatDuration(video.duration)}</span>
+                  )}
+                </div>
+              </Link>
+              <div className="video-actions">
+                <Link to={`/editor/${video.id}`} className="btn-edit">
+                  ✏️ Editar
+                </Link>
               </div>
-              <div className="video-info">
-                <h3>{video.title}</h3>
-                {video.description && (
-                  <p className="video-description">{video.description}</p>
-                )}
-                {video.duration && (
-                  <span className="video-duration">{formatDuration(video.duration)}</span>
-                )}
-              </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}

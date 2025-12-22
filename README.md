@@ -35,19 +35,27 @@ Assim, o estudo deixa de ser apenas repetição e passa a ser **consciente, orga
 ### 1. Upload do vídeo
 O usuário faz upload de um vídeo de estudo (dança ou música).
 
-### 2. Definição do ritmo (manual no MVP)
-Inicialmente, o usuário informa:
-- BPM (batidas por minuto)
-- fórmula de compasso (ex: 4/4, 2/4)
-- ponto inicial do compasso (tempo 1 / downbeat)
+## 📖 Como Usar
 
-Com isso, o Ritmo cria uma **grade rítmica** sobre o vídeo, demarcando os compassos ao longo da timeline.
+### 1. Upload de Vídeo
+1. Clique em **"+ Upload"** no header
+2. Selecione um arquivo de vídeo
+3. Preencha título e descrição (opcional)
+4. Clique em **"Fazer Upload"**
+5. Aguarde o processamento
 
-> No futuro, essa etapa poderá ser automatizada com apoio de IA.
+### 2. Configurar Ritmo
+1. No editor, configure:
+   - **BPM**: Batidas por minuto da música
+   - **Fórmula de Compasso**: Ex: 4/4 (4 batidas por compasso)
+   - **Início do Ritmo**: Quando o primeiro compasso começa
+2. Use **"Usar tempo atual"** para marcar pontos enquanto assiste
+3. Clique em **"Salvar Configuração"**
 
-### 3. Navegação por compassos
-Com a grade criada, o usuário pode:
-- avançar e retroceder compasso a compasso,
+### 3. Exportar Vídeo
+1. Configure **Tempo Inicial** e **Tempo Final** do trecho
+2. Clique em **"Exportar com Contador"**
+3. O vídeo será baixado com o contador sobreposto
 - dar loop em um compasso ou em múltiplos compassos,
 - reproduzir o vídeo em velocidades reduzidas.
 

@@ -12,6 +12,15 @@
 - [x] Corrigido warning CSS (propriedade line-clamp)
 - [x] Corrigido bug: VideoLibrary agora extrai corretamente o array 'results' da resposta paginada
 - [x] Adicionada formatação de duração (minutos:segundos)
+- [x] Corrigidos warnings do React Router v7
+- [x] Implementada página de upload de vídeos (VideoUpload.jsx)
+- [x] Implementado editor de ritmo (RhythmEditor.jsx) com:
+  - Preview do vídeo com contador de compasso e batida em tempo real
+  - Configuração de BPM, fórmula de compasso e offset
+  - Seleção de início e fim para exportação
+  - Exportação de vídeo com contador sobreposto
+- [x] Adicionado botão de upload no header
+- [x] Adicionado botão de editar em cada vídeo da biblioteca
 
 ### Backend
 - [x] Executadas migrações do Django (admin, auth, contenttypes, sessions)
@@ -21,25 +30,57 @@
 - [x] Criado usuário admin (username: admin, senha: admin123)
 - [x] Criado management command para dados de exemplo
 - [x] Adicionados 4 vídeos de exemplo com rhythm grids e fragmentos
+- [x] Implementado módulo de processamento de vídeo (video_processor.py) com:
+  - Extração de metadados (duração, fps, dimensões)
+  - Exportação de vídeo com contador de ritmo usando FFmpeg
+  - Geração de thumbnails
+- [x] Adicionados endpoints:
+  - POST /api/videos/{id}/process_metadata/ - Processar metadados do vídeo
+  - POST /api/videos/{id}/export_with_counter/ - Exportar vídeo com contador
+- [x] Corrigido erro 415 (Unsupported Media Type) adicionando JSONParser ao VideoViewSet
+- [x] Configurado proxy do Vite para servir arquivos de media (/media)
 
 ## 📋 Pendente
 
 ### Backend
-- [ ] Implementar upload de vídeos
-- [ ] Implementar extração de metadados de vídeo (duração, fps, dimensões)
-- [ ] Implementar geração de thumbnails
 - [ ] Adicionar testes unitários
+- [ ] Implementar autenticação JWT
+- [ ] Melhorar tratamento de erros no processamento de vídeo
+- [ ] Adicionar validação de tamanho de arquivo
+- [ ] Implementar limpeza de arquivos temporários
 
 ### Frontend
-- [ ] Implementar página de upload de vídeos
-- [ ] Implementar editor de ritmo (RhythmGrid)
 - [ ] Implementar editor de fragmentos
 - [ ] Adicionar autenticação de usuário
 - [ ] Melhorar UI/UX com componentes shadcn/ui
 - [ ] Adicionar testes
+- [ ] Implementar preview do contador antes da exportação
+- [ ] Adicionar opção de personalizar aparência do contador
 
 ### DevOps
 - [ ] Configurar ambiente de produção
 - [ ] Configurar CI/CD
 - [ ] Configurar backup do banco de dados
 - [ ] Documentar processo de deploy
+
+## 🎯 Como Usar
+
+### Upload de Vídeo
+1. Clique em "+ Upload" no header
+2. Selecione um arquivo de vídeo (MP4, AVI, MOV, MKV ou WEBM)
+3. Preencha título e descrição
+4. Clique em "Fazer Upload"
+5. Aguarde o processamento e você será redirecionado para o editor
+
+### Editor de Ritmo
+1. Configure o BPM (batidas por minuto)
+2. Configure a fórmula de compasso (ex: 4/4)
+3. Ajuste o "Início do Ritmo" para quando o primeiro compasso começa
+4. Use o botão "Usar tempo atual" para definir pontos enquanto assiste o vídeo
+5. Configure início e fim do trecho a exportar
+6. Clique em "Exportar com Contador" para baixar o vídeo processado
+
+### Credenciais Admin
+- Username: admin
+- Senha: admin123
+- Acesso: http://localhost:8000/admin/

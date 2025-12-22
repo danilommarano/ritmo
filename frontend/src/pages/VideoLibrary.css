@@ -31,15 +31,22 @@
   background-color: #1a1a1a;
   border-radius: 8px;
   overflow: hidden;
-  text-decoration: none;
-  color: inherit;
+  display: flex;
+  flex-direction: column;
   transition: transform 0.2s, box-shadow 0.2s;
-  cursor: pointer;
 }
 
 .video-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.video-card-link {
+  text-decoration: none;
+  color: inherit;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .video-thumbnail {
@@ -87,4 +94,28 @@
 .video-duration {
   font-size: 0.75rem;
   color: #666;
+}
+
+.video-actions {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid #2a2a2a;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-edit {
+  flex: 1;
+  padding: 0.5rem 1rem;
+  background-color: #646cff;
+  color: white;
+  text-decoration: none;
+  text-align: center;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: background-color 0.2s;
+}
+
+.btn-edit:hover {
+  background-color: #535bf2;
 }

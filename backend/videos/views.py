@@ -4,8 +4,9 @@ API views for video management
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.shortcuts import get_object_or_404
+from django.http import FileResponse
 from .models import Video, RhythmGrid, Fragment
 from .serializers import (
     VideoSerializer,
@@ -13,6 +14,8 @@ from .serializers import (
     RhythmGridSerializer,
     FragmentSerializer
 )
+from .video_processor import extract_video_metadata, export_video_with_counter
+import os
 
 
 class VideoViewSet(viewsets.ModelViewSet):
@@ -20,7 +23,7 @@ class VideoViewSet(viewsets.ModelViewSet):
     ViewSet for Video CRUD operations
     """
     queryset = Video.objects.all()
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
     
     def get_serializer_class(self):
         """Use different serializers for list and detail views"""
@@ -122,6 +125,101 @@ class VideoViewSet(viewsets.ModelViewSet):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def process_metadata(self, request, pk=None):
+        """
+        Extract and save video metadata (duration, fps, dimensions).
+        POST /api/videos/{id}/process_metadata/
+        """
+        video = self.get_object()
+        
+        if not video.file:
+            return Response(
+                {'detail': 'Video file not found'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            metadata = extract_video_metadata(video.file.path)
+            video.duration = metadata['duration']
+            video.fps = metadata['fps']
+            video.width = metadata['width']
+            video.height = metadata['height']
+            video.is_processed = True
+            video.save()
+            
+            serializer = self.get_serializer(video)
+            return Response(serializer.data)
+        except Exception as e:
+            video.processing_error = str(e)
+            video.save()
+            return Response(
+                {'detail': f'Error processing video: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['post'])
+    def export_with_counter(self, request, pk=None):
+        """
+        Export video with rhythm counter overlay.
+        POST /api/videos/{id}/export_with_counter/
+        
+        Body:
+        {
+            "start_time": 0,
+            "end_time": 60,
+            "use_rhythm_grid": true
+        }
+        """
+        video = self.get_object()
+        
+        if not video.file:
+            return Response(
+                {'detail': 'Video file not found'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        start_time = float(request.data.get('start_time', 0))
+        end_time = request.data.get('end_time')
+        if end_time:
+            end_time = float(end_time)
+        else:
+            end_time = video.duration
+        
+        use_rhythm_grid = request.data.get('use_rhythm_grid', True)
+        
+        try:
+            rhythm_grid = None
+            if use_rhythm_grid:
+                try:
+                    rhythm_grid = video.rhythm_grid
+                except RhythmGrid.DoesNotExist:
+                    return Response(
+                        {'detail': 'Rhythm grid not found. Create one first.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            output_path = export_video_with_counter(
+                video.file.path,
+                start_time,
+                end_time,
+                rhythm_grid
+            )
+            
+            # Return the file
+            response = FileResponse(
+                open(output_path, 'rb'),
+                content_type='video/mp4'
+            )
+            response['Content-Disposition'] = f'attachment; filename="{video.title}_with_counter.mp4"'
+            return response
+            
+        except Exception as e:
+            return Response(
+                {'detail': f'Error exporting video: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class RhythmGridViewSet(viewsets.ModelViewSet):

@@ -90,10 +90,17 @@ class VideoSerializer(serializers.ModelSerializer):
     """Serializer for Video model"""
     
     owner_username = serializers.ReadOnlyField(source='owner.username')
-    file_url = serializers.ReadOnlyField()
+    file_url = serializers.SerializerMethodField()
     rhythm_grid = RhythmGridSerializer(read_only=True)
     fragments = FragmentSerializer(many=True, read_only=True)
     fragments_count = serializers.SerializerMethodField()
+    
+    def get_file_url(self, obj):
+        """Get URL for the video file"""
+        if obj.file:
+            # Return relative URL - the frontend proxy will handle it
+            return obj.file.url
+        return None
     
     class Meta:
         model = Video
@@ -140,9 +147,16 @@ class VideoListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for video list view"""
     
     owner_username = serializers.ReadOnlyField(source='owner.username')
-    file_url = serializers.ReadOnlyField()
+    file_url = serializers.SerializerMethodField()
     has_rhythm_grid = serializers.SerializerMethodField()
     fragments_count = serializers.SerializerMethodField()
+    
+    def get_file_url(self, obj):
+        """Get URL for the video file"""
+        if obj.file:
+            # Return relative URL - the frontend proxy will handle it
+            return obj.file.url
+        return None
     
     class Meta:
         model = Video

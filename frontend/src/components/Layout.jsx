@@ -11,6 +11,7 @@ function Layout({ children }) {
           </Link>
           <nav className="nav">
             <Link to="/" className="nav-link">Biblioteca</Link>
+            <Link to="/upload" className="nav-link upload-link">+ Upload</Link>
           </nav>
         </div>
       </header>
