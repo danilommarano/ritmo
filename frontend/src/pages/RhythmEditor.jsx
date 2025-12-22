@@ -27,6 +27,12 @@ function RhythmEditor() {
   const [currentTime, setCurrentTime] = useState(0)
   const [currentBar, setCurrentBar] = useState(0)
   const [currentBeat, setCurrentBeat] = useState(0)
+  
+  // Tap tempo recording state
+  const [isRecording, setIsRecording] = useState(false)
+  const [taps, setTaps] = useState([])
+  const [recordingStartTime, setRecordingStartTime] = useState(null)
+  const [showTapFlash, setShowTapFlash] = useState(false)
 
   useEffect(() => {
     fetchVideo()
@@ -55,6 +61,19 @@ function RhythmEditor() {
       setCurrentBeat(0)
     }
   }, [currentTime, bpm, timeSignatureNum, offsetStart])
+
+  // Keyboard listener for space bar during recording
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      if (e.code === 'Space' && isRecording && videoRef.current) {
+        e.preventDefault()
+        recordTap()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyPress)
+    return () => window.removeEventListener('keydown', handleKeyPress)
+  }, [isRecording, recordingStartTime])
 
   const fetchVideo = async () => {
     try {
@@ -115,6 +134,71 @@ function RhythmEditor() {
 
   const setEndTimeToCurrent = () => {
     setEndTime(currentTime)
+  }
+
+  const startRecording = () => {
+    if (!videoRef.current) return
+    
+    // Reset taps and start video
+    setTaps([])
+    setRecordingStartTime(null)
+    setIsRecording(true)
+    
+    // Start video from current position
+    videoRef.current.currentTime = currentTime
+    videoRef.current.play()
+    setIsPlaying(true)
+  }
+
+  const stopRecording = () => {
+    setIsRecording(false)
+    
+    if (taps.length < 4) {
+      alert('Grave pelo menos 4 batidas para calcular o BPM')
+      setTaps([])
+      return
+    }
+    
+    // Calculate BPM from taps
+    calculateBPMFromTaps()
+  }
+
+  const recordTap = () => {
+    const currentVideoTime = videoRef.current.currentTime
+    
+    // First tap sets the recording start time and offset
+    if (taps.length === 0) {
+      setRecordingStartTime(currentVideoTime)
+      setOffsetStart(currentVideoTime)
+    }
+    
+    setTaps(prev => [...prev, currentVideoTime])
+    
+    // Show visual feedback
+    setShowTapFlash(true)
+    setTimeout(() => setShowTapFlash(false), 150)
+  }
+
+  const calculateBPMFromTaps = () => {
+    if (taps.length < 2) return
+    
+    // Calculate intervals between taps
+    const intervals = []
+    for (let i = 1; i < taps.length; i++) {
+      intervals.push(taps[i] - taps[i - 1])
+    }
+    
+    // Calculate average interval
+    const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length
+    
+    // Convert to BPM (60 seconds / interval)
+    const calculatedBPM = Math.round(60 / avgInterval)
+    
+    // Set the calculated BPM
+    setBpm(calculatedBPM)
+    
+    // Show success message
+    alert(`BPM detectado: ${calculatedBPM}\nBatidas gravadas: ${taps.length}\nOffset: ${offsetStart.toFixed(2)}s`)
   }
 
   const saveRhythmGrid = async () => {
@@ -233,8 +317,16 @@ function RhythmEditor() {
               Seu navegador não suporta reprodução de vídeos.
             </video>
             
+            {/* Tap flash indicator */}
+            {showTapFlash && <div className="tap-flash"></div>}
+            
             <div className="rhythm-display">
-              {currentBar > 0 ? (
+              {isRecording ? (
+                <div className="recording-display">
+                  🔴 GRAVANDO - Pressione ESPAÇO
+                  <div className="tap-count">{taps.length} batidas</div>
+                </div>
+              ) : currentBar > 0 ? (
                 <>
                   <div className="bar-display">Compasso: {currentBar}</div>
                   <div className="beat-display">Batida: {currentBeat}</div>
@@ -259,6 +351,39 @@ function RhythmEditor() {
           <div className="settings-card">
             <h2>Configuração de Ritmo</h2>
             
+            {/* Tap Tempo Recording */}
+            <div className="tap-tempo-section">
+              <h3>Gravar Batidas</h3>
+              <p className="tap-instructions">
+                {isRecording 
+                  ? `Pressione ESPAÇO no ritmo da música (${taps.length} batidas gravadas)`
+                  : 'Clique para iniciar e pressione ESPAÇO seguindo o ritmo'}
+              </p>
+              
+              {!isRecording ? (
+                <button onClick={startRecording} className="btn-record">
+                  🎵 Iniciar Gravação
+                </button>
+              ) : (
+                <button onClick={stopRecording} className="btn-stop-record">
+                  ⏹️ Parar e Calcular BPM
+                </button>
+              )}
+              
+              {taps.length > 0 && !isRecording && (
+                <div className="taps-info">
+                  <p>Batidas gravadas: {taps.length}</p>
+                  <button onClick={() => setTaps([])} className="btn-clear">
+                    Limpar
+                  </button>
+                </div>
+              )}
+            </div>
+            
+            <div className="divider"></div>
+            
+            {/* Manual BPM Configuration */}
+            <h3>Configuração Manual</h3>
             <div className="form-group">
               <label>BPM (Batidas por Minuto)</label>
               <input
@@ -267,6 +392,7 @@ function RhythmEditor() {
                 onChange={(e) => setBpm(Number(e.target.value))}
                 min="1"
                 max="300"
+                disabled={isRecording}
               />
             </div>
 

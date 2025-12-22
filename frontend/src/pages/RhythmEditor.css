@@ -83,6 +83,49 @@
   color: #888;
 }
 
+.recording-display {
+  color: #ef4444;
+  font-weight: 700;
+  text-align: center;
+  animation: blink 1s ease-in-out infinite;
+}
+
+.tap-count {
+  font-size: 1.25rem;
+  margin-top: 0.5rem;
+  color: #10b981;
+}
+
+@keyframes blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.tap-flash {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(16, 185, 129, 0.3);
+  pointer-events: none;
+  animation: flash 0.15s ease-out;
+  border-radius: 8px;
+}
+
+@keyframes flash {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 .video-controls {
   display: flex;
   align-items: center;
@@ -130,6 +173,111 @@
   margin: 0 0 1.5rem 0;
   font-size: 1.25rem;
   color: #fff;
+}
+
+.settings-card h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  color: #ccc;
+  font-weight: 600;
+}
+
+.tap-tempo-section {
+  background-color: #2a2a2a;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+}
+
+.tap-instructions {
+  margin: 0 0 1rem 0;
+  color: #ccc;
+  font-size: 0.875rem;
+  text-align: center;
+  min-height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-record,
+.btn-stop-record {
+  width: 100%;
+  padding: 1rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-record {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+}
+
+.btn-record:hover {
+  background: linear-gradient(135deg, #059669, #047857);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.btn-stop-record {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: white;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.btn-stop-record:hover {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+.taps-info {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background-color: #1a1a1a;
+  border-radius: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.taps-info p {
+  margin: 0;
+  color: #10b981;
+  font-weight: 600;
+}
+
+.btn-clear {
+  padding: 0.5rem 1rem;
+  background-color: transparent;
+  color: #ef4444;
+  border: 1px solid #ef4444;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-clear:hover {
+  background-color: #ef4444;
+  color: white;
+}
+
+.divider {
+  height: 1px;
+  background-color: #444;
+  margin: 1.5rem 0;
 }
 
 .form-group {

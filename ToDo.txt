@@ -39,6 +39,14 @@
   - POST /api/videos/{id}/export_with_counter/ - Exportar vídeo com contador
 - [x] Corrigido erro 415 (Unsupported Media Type) adicionando JSONParser ao VideoViewSet
 - [x] Configurado proxy do Vite para servir arquivos de media (/media)
+- [x] Corrigida sintaxe do FFmpeg drawtext para exibir contador corretamente
+- [x] Implementado sistema de Tap Tempo:
+  - Gravação de batidas com tecla ESPAÇO
+  - Cálculo automático de BPM baseado nos intervalos
+  - Detecção automática de offset (primeira batida)
+  - Feedback visual com flash verde ao gravar
+  - Indicador de gravação em tempo real
+  - Contador de batidas gravadas
 
 ## 📋 Pendente
 
