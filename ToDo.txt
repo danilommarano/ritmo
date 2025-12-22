@@ -1,0 +1,45 @@
+# Ritmo - Lista de Tarefas
+
+## ✅ Concluído (21/12/2024)
+
+### Frontend
+- [x] Criados componentes faltantes:
+  - Layout.jsx e Layout.css - Componente de layout com header e footer
+  - VideoLibrary.jsx e VideoLibrary.css - Página da biblioteca de vídeos
+  - VideoPlayer.jsx e VideoPlayer.css - Página do player de vídeo
+- [x] Configurado proxy no Vite para redirecionar chamadas da API para o backend
+- [x] Corrigidos endpoints da API nos componentes (/api/videos/videos/)
+- [x] Corrigido warning CSS (propriedade line-clamp)
+- [x] Corrigido bug: VideoLibrary agora extrai corretamente o array 'results' da resposta paginada
+- [x] Adicionada formatação de duração (minutos:segundos)
+
+### Backend
+- [x] Executadas migrações do Django (admin, auth, contenttypes, sessions)
+- [x] Criadas migrações para o app videos (Video, RhythmGrid, Fragment)
+- [x] Aplicadas migrações do app videos
+- [x] API REST funcionando corretamente em /api/videos/videos/
+- [x] Criado usuário admin (username: admin, senha: admin123)
+- [x] Criado management command para dados de exemplo
+- [x] Adicionados 4 vídeos de exemplo com rhythm grids e fragmentos
+
+## 📋 Pendente
+
+### Backend
+- [ ] Implementar upload de vídeos
+- [ ] Implementar extração de metadados de vídeo (duração, fps, dimensões)
+- [ ] Implementar geração de thumbnails
+- [ ] Adicionar testes unitários
+
+### Frontend
+- [ ] Implementar página de upload de vídeos
+- [ ] Implementar editor de ritmo (RhythmGrid)
+- [ ] Implementar editor de fragmentos
+- [ ] Adicionar autenticação de usuário
+- [ ] Melhorar UI/UX com componentes shadcn/ui
+- [ ] Adicionar testes
+
+### DevOps
+- [ ] Configurar ambiente de produção
+- [ ] Configurar CI/CD
+- [ ] Configurar backup do banco de dados
+- [ ] Documentar processo de deploy
