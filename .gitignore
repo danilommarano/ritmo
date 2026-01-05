@@ -77,3 +77,6 @@ htmlcov/
 .coverage.*
 coverage.xml
 *.cover
+
+# IPython
+**/*.ipynb

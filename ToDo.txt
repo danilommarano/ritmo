@@ -66,10 +66,15 @@
 - [ ] Adicionar opção de personalizar aparência do contador
 
 ### DevOps
-- [ ] Configurar ambiente de produção
+- [x] Criado Makefile completo para gerenciamento de containers Docker
+- [x] Configurado docker-compose.prod.yml para produção
+- [x] Configurado docker-compose.test.yml para testes
+- [x] Criada configuração Nginx para reverse proxy
+- [x] Criado template .env.example para variáveis de ambiente
 - [ ] Configurar CI/CD
-- [ ] Configurar backup do banco de dados
-- [ ] Documentar processo de deploy
+- [ ] Configurar backup automatizado do banco de dados
+- [ ] Configurar monitoramento e alertas
+- [ ] Documentar processo de deploy completo
 
 ## 🎯 Como Usar
 
@@ -92,3 +97,14 @@
 - Username: admin
 - Senha: admin123
 - Acesso: http://localhost:8000/admin/
+
+### Gerenciamento de Containers (Makefile)
+1. **Desenvolvimento**: `make dev-up` - Sobe containers para desenvolvimento
+2. **Produção**: `make prod-up` - Sobe containers para produção
+3. **Testes**: `make test-up` - Sobe containers para testes
+4. **Logs**: `make logs` - Visualiza logs de todos os serviços
+5. **Limpeza**: `make clean` - Remove containers e volumes não utilizados
+6. **Ajuda**: `make help` - Lista todos os comandos disponíveis
+7. **Setup inicial**: `make setup` - Configuração completa do projeto
+8. **Backup**: `make backup` - Faz backup do banco de dados
+9. **Shell**: `make shell-backend` / `make shell-frontend` - Acessa shell dos containers

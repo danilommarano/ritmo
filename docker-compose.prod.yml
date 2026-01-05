@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ritmo_postgres_prod
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ritmo_db}
+      POSTGRES_USER: ${POSTGRES_USER:-ritmo_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ritmo_password}
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ritmo_user} -d ${POSTGRES_DB:-ritmo_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - ritmo_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: ritmo_backend_prod
+    command: gunicorn ritmo.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120
+    volumes:
+      - media_files_prod:/app/media
+      - static_files_prod:/app/static
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=False
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-ritmo_user}:${POSTGRES_PASSWORD:-ritmo_password}@postgres:5432/${POSTGRES_DB:-ritmo_db}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - DJANGO_SETTINGS_MODULE=ritmo.settings.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ritmo_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: ritmo_frontend_prod
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - VITE_API_URL=${VITE_API_URL:-http://localhost:8000}
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - ritmo_network
+
+  # Nginx reverse proxy (opcional)
+  nginx:
+    image: nginx:alpine
+    container_name: ritmo_nginx_prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - static_files_prod:/var/www/static:ro
+      - media_files_prod:/var/www/media:ro
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+    networks:
+      - ritmo_network
+    profiles:
+      - nginx
+
+  # Redis para cache (opcional)
+  redis:
+    image: redis:7-alpine
+    container_name: ritmo_redis_prod
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
+    volumes:
+      - redis_data_prod:/data
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - ritmo_network
+    profiles:
+      - cache
+
+volumes:
+  postgres_data_prod:
+  media_files_prod:
+  static_files_prod:
+  redis_data_prod:
+
+networks:
+  ritmo_network:
+    driver: bridge

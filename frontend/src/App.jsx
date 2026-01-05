@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
+import LandingPage from './components/LandingPage'
 import VideoLibrary from './pages/VideoLibrary'
 import VideoPlayer from './pages/VideoPlayer'
 import VideoUpload from './pages/VideoUpload'
@@ -9,14 +10,29 @@ import './App.css'
 function App() {
   return (
     <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <Layout>
-        <Routes>
-          <Route path="/" element={<VideoLibrary />} />
-          <Route path="/video/:id" element={<VideoPlayer />} />
-          <Route path="/upload" element={<VideoUpload />} />
-          <Route path="/editor/:id" element={<RhythmEditor />} />
-        </Routes>
-      </Layout>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/app" element={
+          <Layout>
+            <VideoLibrary />
+          </Layout>
+        } />
+        <Route path="/video/:id" element={
+          <Layout>
+            <VideoPlayer />
+          </Layout>
+        } />
+        <Route path="/upload" element={
+          <Layout>
+            <VideoUpload />
+          </Layout>
+        } />
+        <Route path="/editor/:id" element={
+          <Layout>
+            <RhythmEditor />
+          </Layout>
+        } />
+      </Routes>
     </Router>
   )
 }

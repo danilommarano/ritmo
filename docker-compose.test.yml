@@ -1,0 +1,112 @@
+version: '3.8'
+
+services:
+  postgres_test:
+    image: postgres:15-alpine
+    container_name: ritmo_postgres_test
+    environment:
+      POSTGRES_DB: ritmo_test_db
+      POSTGRES_USER: ritmo_test_user
+      POSTGRES_PASSWORD: ritmo_test_password
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ritmo_test_user -d ritmo_test_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    networks:
+      - ritmo_test_network
+
+  backend_test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ritmo_backend_test
+    command: python manage.py test --verbosity=2
+    volumes:
+      - ./backend:/app
+      - media_test_files:/app/media
+    environment:
+      - DEBUG=True
+      - DATABASE_URL=postgresql://ritmo_test_user:ritmo_test_password@postgres_test:5432/ritmo_test_db
+      - ALLOWED_HOSTS=localhost,127.0.0.1,backend_test
+      - DJANGO_SETTINGS_MODULE=ritmo.settings.test
+    depends_on:
+      postgres_test:
+        condition: service_healthy
+    networks:
+      - ritmo_test_network
+
+  frontend_test:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ritmo_frontend_test
+    command: npm run test
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://backend_test:8000
+      - NODE_ENV=test
+    depends_on:
+      - backend_test
+    networks:
+      - ritmo_test_network
+
+  # Container para testes de integração
+  integration_test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ritmo_integration_test
+    command: python manage.py test tests.integration --verbosity=2
+    volumes:
+      - ./backend:/app
+      - media_test_files:/app/media
+    environment:
+      - DEBUG=True
+      - DATABASE_URL=postgresql://ritmo_test_user:ritmo_test_password@postgres_test:5432/ritmo_test_db
+      - ALLOWED_HOSTS=localhost,127.0.0.1,backend_test
+      - DJANGO_SETTINGS_MODULE=ritmo.settings.test
+    depends_on:
+      postgres_test:
+        condition: service_healthy
+      backend_test:
+        condition: service_completed_successfully
+    networks:
+      - ritmo_test_network
+    profiles:
+      - integration
+
+  # Container para testes E2E com Playwright/Cypress
+  e2e_test:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.test
+    container_name: ritmo_e2e_test
+    command: npm run test:e2e
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://backend_test:8000
+      - NODE_ENV=test
+    depends_on:
+      - backend_test
+      - frontend_test
+    networks:
+      - ritmo_test_network
+    profiles:
+      - e2e
+
+volumes:
+  postgres_test_data:
+  media_test_files:
+
+networks:
+  ritmo_test_network:
+    driver: bridge
