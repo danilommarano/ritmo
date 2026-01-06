@@ -26,13 +26,20 @@ function VideoEditor() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [originalDuration, setOriginalDuration] = useState(0) // Original video duration
   
-  // Elements state (texts, counters, alerts)
+  // Elements state (texts, metronomes, alerts)
   const [elements, setElements] = useState([])
   const [selectedElementId, setSelectedElementId] = useState(null)
   
   // Video cuts state
   const [cuts, setCuts] = useState([])
+  
+  // Video segments state (for speed control and cuts)
+  const [videoSegments, setVideoSegments] = useState([
+    { id: generateId(), startTime: 0, endTime: null, speed: 1.0 } // null endTime means duration
+  ])
+  const [selectedSegmentId, setSelectedSegmentId] = useState(null)
   
   // BPM configuration for alerts
   const [bpmConfig, setBpmConfig] = useState({
@@ -62,8 +69,97 @@ function VideoEditor() {
   const [historyIndex, setHistoryIndex] = useState(-1)
   const isUndoRedoRef = useRef(false)
   const lastRecordedRef = useRef(null)
+  const isSeekingRef = useRef(false)
   const historyDebounceRef = useRef(null)
   const pendingHistoryRef = useRef(null)
+
+  // Calculate effective duration based on video segments
+  const calculateEffectiveDuration = useCallback(() => {
+    if (!videoSegments || videoSegments.length === 0) return originalDuration
+    
+    let totalDuration = 0
+    videoSegments.forEach(segment => {
+      const segmentDuration = (segment.endTime || originalDuration) - segment.startTime
+      totalDuration += segmentDuration
+    })
+    
+    return totalDuration
+  }, [videoSegments, originalDuration])
+
+  // Convert timeline time to actual video time based on segments
+  const timelineToVideoTime = useCallback((timelineTime) => {
+    if (!videoSegments || videoSegments.length === 0) return timelineTime
+    
+    let accumulatedTime = 0
+    for (const segment of videoSegments) {
+      const segmentDuration = (segment.endTime || originalDuration) - segment.startTime
+      
+      if (timelineTime <= accumulatedTime + segmentDuration) {
+        // The time falls within this segment
+        const offsetInSegment = timelineTime - accumulatedTime
+        return segment.startTime + offsetInSegment
+      }
+      
+      accumulatedTime += segmentDuration
+    }
+    
+    // If we're past all segments, return the end of the last segment
+    const lastSegment = videoSegments[videoSegments.length - 1]
+    return lastSegment.endTime || originalDuration
+  }, [videoSegments, originalDuration])
+
+  // Convert actual video time to timeline time based on segments
+  const videoToTimelineTime = useCallback((videoTime) => {
+    if (!videoSegments || videoSegments.length === 0) return videoTime
+    
+    let accumulatedTime = 0
+    for (const segment of videoSegments) {
+      const segmentStart = segment.startTime
+      const segmentEnd = segment.endTime || originalDuration
+      
+      if (videoTime >= segmentStart && videoTime <= segmentEnd) {
+        // The time falls within this segment
+        const offsetInSegment = videoTime - segmentStart
+        return accumulatedTime + offsetInSegment
+      }
+      
+      accumulatedTime += segmentEnd - segmentStart
+    }
+    
+    return accumulatedTime
+  }, [videoSegments, originalDuration])
+
+  // Get current segment info based on timeline time
+  const getCurrentSegmentInfo = useCallback((timelineTime) => {
+    if (!videoSegments || videoSegments.length === 0) return null
+    
+    let accumulatedTime = 0
+    for (let i = 0; i < videoSegments.length; i++) {
+      const segment = videoSegments[i]
+      const segmentDuration = (segment.endTime || originalDuration) - segment.startTime
+      
+      if (timelineTime < accumulatedTime + segmentDuration) {
+        return {
+          index: i,
+          segment,
+          segmentStartInTimeline: accumulatedTime,
+          segmentEndInTimeline: accumulatedTime + segmentDuration
+        }
+      }
+      
+      accumulatedTime += segmentDuration
+    }
+    
+    return null
+  }, [videoSegments, originalDuration])
+
+  // Update duration when segments change
+  useEffect(() => {
+    if (originalDuration > 0) {
+      const newDuration = calculateEffectiveDuration()
+      setDuration(newDuration)
+    }
+  }, [videoSegments, originalDuration, calculateEffectiveDuration])
 
   // Fetch video data
   useEffect(() => {
@@ -300,7 +396,13 @@ function VideoEditor() {
       const data = await response.json()
       setVideo(data)
       const videoDuration = data.duration || 0
+      setOriginalDuration(videoDuration)
       setDuration(videoDuration)
+      
+      // Initialize video segments with full duration
+      setVideoSegments([
+        { id: generateId(), startTime: 0, endTime: videoDuration, speed: 1.0 }
+      ])
       
       // Try to load saved elements first
       let hasElements = false
@@ -370,9 +472,9 @@ function VideoEditor() {
         }
       }
       
-      // If no saved elements, add default counter
+      // If no saved elements, add default metronome
       if (!hasElements) {
-        addDefaultCounter(videoDuration, 0)
+        addDefaultMetronome(videoDuration, 0)
       }
       
       // Try to load waveform data
@@ -392,62 +494,155 @@ function VideoEditor() {
     }
   }
   
-  // Add default counter element at bottom of video
-  const addDefaultCounter = (videoDuration, offsetStart) => {
-    const defaultCounter = {
+  // Add default metronome element at bottom of video
+  const addDefaultMetronome = (videoDuration, offsetStart) => {
+    const defaultMetronome = {
       id: generateId(),
-      type: 'counter',
+      type: 'metronome',
       startTime: 0,
       endTime: videoDuration,
       // Position at bottom center (y: 90% = near bottom)
       x: 50,
       y: 90,
       visible: true,
-      counterType: 'bar-beat',
+      metronomeType: 'bar-beat',
       fontSize: 36,
       fontColor: '#FFFFFF',
       backgroundColor: 'rgba(0, 0, 0, 0.7)',
       hasBackground: true
     }
-    setElements([defaultCounter])
+    setElements([defaultMetronome])
   }
 
-  // Video control handlers
+  // Track which segment we're currently playing
+  const currentSegmentIndexRef = useRef(0)
+
+  // Video control handlers - manages playback across segments
   const handleTimeUpdate = useCallback(() => {
-    if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime)
+    if (!videoRef.current || isSeekingRef.current || !videoSegments || videoSegments.length === 0) return
+    
+    const actualVideoTime = videoRef.current.currentTime
+    const currentSegmentIndex = currentSegmentIndexRef.current
+    const segment = videoSegments[currentSegmentIndex]
+    
+    if (!segment) return
+    
+    const segmentEndInVideo = segment.endTime || originalDuration
+    
+    // Calculate timeline position for this segment
+    let segmentStartInTimeline = 0
+    for (let i = 0; i < currentSegmentIndex; i++) {
+      const seg = videoSegments[i]
+      segmentStartInTimeline += (seg.endTime || originalDuration) - seg.startTime
     }
-  }, [])
+    
+    // Check if we've reached the end of the current segment
+    if (actualVideoTime >= segmentEndInVideo - 0.05) {
+      // Move to the next segment
+      const nextSegmentIndex = currentSegmentIndex + 1
+      
+      if (nextSegmentIndex < videoSegments.length) {
+        // Jump to the start of the next segment in the actual video
+        const nextSegment = videoSegments[nextSegmentIndex]
+        currentSegmentIndexRef.current = nextSegmentIndex
+        isSeekingRef.current = true
+        videoRef.current.currentTime = nextSegment.startTime
+        
+        // Calculate new timeline time
+        const segmentDuration = segmentEndInVideo - segment.startTime
+        setCurrentTime(segmentStartInTimeline + segmentDuration)
+        
+        setTimeout(() => {
+          isSeekingRef.current = false
+        }, 50)
+      } else {
+        // No more segments, stop playback
+        videoRef.current.pause()
+        setIsPlaying(false)
+        setCurrentTime(duration)
+      }
+    } else {
+      // Update timeline time based on current video position within the segment
+      const offsetInSegment = actualVideoTime - segment.startTime
+      const newTimelineTime = segmentStartInTimeline + offsetInSegment
+      setCurrentTime(newTimelineTime)
+    }
+  }, [videoSegments, duration, originalDuration])
 
   const handleLoadedMetadata = useCallback(() => {
     if (videoRef.current) {
-      setDuration(videoRef.current.duration)
+      // Only set original duration from video metadata, effective duration is calculated from segments
+      if (originalDuration === 0) {
+        setOriginalDuration(videoRef.current.duration)
+      }
     }
-  }, [])
+  }, [originalDuration])
 
   const handlePlayPause = useCallback(() => {
     if (videoRef.current) {
       if (isPlaying) {
         videoRef.current.pause()
       } else {
+        // Before playing, ensure video is at the correct position for current timeline time
+        const actualVideoTime = timelineToVideoTime(currentTime)
+        if (Math.abs(videoRef.current.currentTime - actualVideoTime) > 0.1) {
+          videoRef.current.currentTime = actualVideoTime
+        }
+        
+        // Update current segment index based on current timeline time
+        if (videoSegments && videoSegments.length > 0) {
+          let accumulatedTime = 0
+          for (let i = 0; i < videoSegments.length; i++) {
+            const segment = videoSegments[i]
+            const segmentDuration = (segment.endTime || originalDuration) - segment.startTime
+            if (currentTime < accumulatedTime + segmentDuration) {
+              currentSegmentIndexRef.current = i
+              break
+            }
+            accumulatedTime += segmentDuration
+          }
+        }
+        
         videoRef.current.play()
       }
       setIsPlaying(!isPlaying)
     }
-  }, [isPlaying])
+  }, [isPlaying, currentTime, timelineToVideoTime, videoSegments, originalDuration])
 
-  const handleSeek = useCallback((time) => {
+  const handleSeek = useCallback((timelineTime) => {
     if (videoRef.current) {
-      videoRef.current.currentTime = time
-      setCurrentTime(time)
+      isSeekingRef.current = true
+      // Convert timeline time to actual video time
+      const actualVideoTime = timelineToVideoTime(timelineTime)
+      videoRef.current.currentTime = actualVideoTime
+      setCurrentTime(timelineTime)
+      
+      // Update current segment index based on timeline time
+      if (videoSegments && videoSegments.length > 0) {
+        let accumulatedTime = 0
+        for (let i = 0; i < videoSegments.length; i++) {
+          const segment = videoSegments[i]
+          const segmentDuration = (segment.endTime || originalDuration) - segment.startTime
+          if (timelineTime < accumulatedTime + segmentDuration) {
+            currentSegmentIndexRef.current = i
+            break
+          }
+          accumulatedTime += segmentDuration
+        }
+      }
+      
+      // Reset seeking flag after a short delay to allow video to settle
+      setTimeout(() => {
+        isSeekingRef.current = false
+      }, 100)
     }
-  }, [])
+  }, [timelineToVideoTime, videoSegments, originalDuration])
 
   // Element management
   const addElement = useCallback((type) => {
     const newElement = {
       id: generateId(),
-      type, // 'text', 'counter', 'alert', 'timer'
+      type, // 'text', 'metronome', 'alert', 'timer'
       startTime: currentTime,
       endTime: Math.min(currentTime + 5, duration), // Default 5 seconds duration
       // Position (percentage of video dimensions)
@@ -467,8 +662,8 @@ function VideoEditor() {
         newElement.hasBackground = true
         newElement.fontWeight = 'bold'
         break
-      case 'counter':
-        newElement.counterType = 'bar-beat' // 'bar-beat', 'bar', 'beat', 'time'
+      case 'metronome':
+        newElement.metronomeType = 'bar-beat' // 'bar-beat', 'bar', 'beat', 'time'
         newElement.fontSize = 48
         newElement.fontColor = '#FFFFFF'
         newElement.backgroundColor = 'rgba(0, 0, 0, 0.7)'
@@ -614,6 +809,96 @@ function VideoEditor() {
     }
   }, [elements, recordHistory])
 
+  // Video segment management
+  const cutVideoAtCurrentTime = useCallback(() => {
+    if (!selectedSegmentId) return
+    
+    const segmentIndex = videoSegments.findIndex(s => s.id === selectedSegmentId)
+    if (segmentIndex === -1) return
+    
+    const segment = videoSegments[segmentIndex]
+    const segmentEndTime = segment.endTime || originalDuration
+    
+    // Calculate where in the timeline this segment starts
+    let segmentStartInTimeline = 0
+    for (let i = 0; i < segmentIndex; i++) {
+      const seg = videoSegments[i]
+      segmentStartInTimeline += (seg.endTime || originalDuration) - seg.startTime
+    }
+    const segmentEndInTimeline = segmentStartInTimeline + (segmentEndTime - segment.startTime)
+    
+    // Check if current timeline time is within this segment
+    if (currentTime <= segmentStartInTimeline || currentTime >= segmentEndInTimeline) return
+    
+    // Convert timeline time to video time for the cut point
+    const offsetInSegment = currentTime - segmentStartInTimeline
+    const cutPointInVideo = segment.startTime + offsetInSegment
+    
+    // Create two new segments from the cut
+    const newSegments = [...videoSegments]
+    const leftSegment = {
+      ...segment,
+      endTime: cutPointInVideo
+    }
+    const rightSegment = {
+      id: generateId(),
+      startTime: cutPointInVideo,
+      endTime: segment.endTime || originalDuration,
+      speed: segment.speed
+    }
+    
+    newSegments.splice(segmentIndex, 1, leftSegment, rightSegment)
+    setVideoSegments(newSegments)
+    setSelectedSegmentId(rightSegment.id)
+  }, [videoSegments, selectedSegmentId, currentTime, originalDuration])
+
+  const duplicateVideoSegment = useCallback((segmentId) => {
+    const segmentIndex = videoSegments.findIndex(s => s.id === segmentId)
+    if (segmentIndex === -1) return
+    
+    const segment = videoSegments[segmentIndex]
+    
+    // Create a duplicate that references the SAME original video time range
+    // This means when played, it will replay the same portion of the original video
+    const duplicateSegment = {
+      id: generateId(),
+      startTime: segment.startTime,  // Same start time in original video
+      endTime: segment.endTime || originalDuration,  // Same end time in original video
+      speed: segment.speed
+    }
+    
+    // Insert duplicate right after the original segment
+    const newSegments = [...videoSegments]
+    newSegments.splice(segmentIndex + 1, 0, duplicateSegment)
+    
+    setVideoSegments(newSegments)
+    setSelectedSegmentId(duplicateSegment.id)
+  }, [videoSegments, originalDuration])
+
+  const removeVideoSegment = useCallback((segmentId) => {
+    if (videoSegments.length <= 1) {
+      alert('Não é possível remover o último segmento')
+      return
+    }
+    
+    const segmentIndex = videoSegments.findIndex(s => s.id === segmentId)
+    if (segmentIndex === -1) return
+    
+    // Simply remove the segment - no need to shift times since each segment
+    // references its own portion of the original video
+    const newSegments = videoSegments.filter(s => s.id !== segmentId)
+    
+    setVideoSegments(newSegments)
+    setSelectedSegmentId(null)
+  }, [videoSegments])
+
+  const updateVideoSegmentSpeed = useCallback((segmentId, speed) => {
+    const newSegments = videoSegments.map(seg =>
+      seg.id === segmentId ? { ...seg, speed } : seg
+    )
+    setVideoSegments(newSegments)
+  }, [videoSegments])
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -642,16 +927,30 @@ function VideoEditor() {
         e.preventDefault()
         duplicateElement(selectedElementId)
       }
-      // Delete or Backspace - Delete element
-      else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedElementId) {
+      // Delete or Backspace - Delete element or video segment
+      else if ((e.key === 'Delete' || e.key === 'Backspace')) {
         e.preventDefault()
-        deleteElement(selectedElementId)
+        if (selectedElementId) {
+          deleteElement(selectedElementId)
+        } else if (selectedSegmentId) {
+          removeVideoSegment(selectedSegmentId)
+        }
+      }
+      // S - Split/Cut video segment at current time
+      else if (e.key === 's' && selectedSegmentId && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        cutVideoAtCurrentTime()
+      }
+      // Ctrl/Cmd + D - Duplicate video segment (when segment is selected)
+      else if ((e.ctrlKey || e.metaKey) && e.key === 'd' && selectedSegmentId && !selectedElementId) {
+        e.preventDefault()
+        duplicateVideoSegment(selectedSegmentId)
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedElementId, clipboardElement, copyElement, pasteElement, duplicateElement, deleteElement, undo, redo])
+  }, [selectedElementId, selectedSegmentId, clipboardElement, copyElement, pasteElement, duplicateElement, deleteElement, undo, redo, cutVideoAtCurrentTime, duplicateVideoSegment, removeVideoSegment])
 
   // Cut management
   const addCut = useCallback(() => {
@@ -673,6 +972,13 @@ function VideoEditor() {
     
     setExporting(true)
     try {
+      // Prepare video segments for export - each segment references a portion of the original video
+      const exportSegments = videoSegments.map(seg => ({
+        start_time: seg.startTime,
+        end_time: seg.endTime || originalDuration,
+        speed: seg.speed
+      }))
+      
       const response = await fetch(`/api/videos/videos/${video.id}/export_with_elements/`, {
         method: 'POST',
         headers: {
@@ -680,6 +986,7 @@ function VideoEditor() {
         },
         body: JSON.stringify({
           elements: elements,
+          video_segments: exportSegments,
           start_time: 0,
           end_time: duration,
           bpm_config: {
@@ -934,12 +1241,21 @@ function VideoEditor() {
           <Timeline
             elements={elements}
             cuts={cuts}
+            videoSegments={videoSegments}
+            selectedSegmentId={selectedSegmentId}
+            onSelectSegment={setSelectedSegmentId}
+            onCutSegment={cutVideoAtCurrentTime}
+            onDuplicateSegment={duplicateVideoSegment}
+            onRemoveSegment={removeVideoSegment}
+            onUpdateSegmentSpeed={updateVideoSegmentSpeed}
+            onUpdateVideoSegments={setVideoSegments}
             selectedElementId={selectedElementId}
             onSelectElement={selectElement}
             onUpdateElement={updateElement}
             onRemoveCut={removeCut}
             currentTime={currentTime}
             duration={duration}
+            originalDuration={originalDuration}
             onSeek={handleSeek}
             waveformData={waveformData}
             isPlaying={isPlaying}

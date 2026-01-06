@@ -7,12 +7,21 @@ import { formatTime, elementTypeLabels } from './utils'
 function Timeline({
   elements,
   cuts,
+  videoSegments,
+  selectedSegmentId,
+  onSelectSegment,
+  onCutSegment,
+  onDuplicateSegment,
+  onRemoveSegment,
+  onUpdateSegmentSpeed,
+  onUpdateVideoSegments,
   selectedElementId,
   onSelectElement,
   onUpdateElement,
   onRemoveCut,
   currentTime,
   duration,
+  originalDuration,
   onSeek,
   waveformData,
   isPlaying,
@@ -34,6 +43,12 @@ function Timeline({
   const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false)
   const [contextMenu, setContextMenu] = useState(null) // { x, y, elementId }
   const [rulerMode, setRulerMode] = useState('bars') // 'time' or 'bars'
+  
+  // Timeline height resize state
+  const [timelineHeight, setTimelineHeight] = useState(280) // Default height in pixels
+  const [isResizing, setIsResizing] = useState(false)
+  const resizeStartY = useRef(0)
+  const resizeStartHeight = useRef(0)
 
   // Calculate timeline width based on duration and zoom
   const basePixelsPerSecond = 50
@@ -124,21 +139,68 @@ function Timeline({
     }
   }, [contextMenu])
 
+  // Handle timeline height resize
+  const handleResizeStart = (e) => {
+    e.preventDefault()
+    setIsResizing(true)
+    resizeStartY.current = e.clientY
+    resizeStartHeight.current = timelineHeight
+  }
+
+  useEffect(() => {
+    if (!isResizing) return
+
+    const handleResizeMove = (e) => {
+      // Dragging up increases height, dragging down decreases
+      const deltaY = resizeStartY.current - e.clientY
+      const newHeight = Math.max(150, Math.min(600, resizeStartHeight.current + deltaY))
+      setTimelineHeight(newHeight)
+    }
+
+    const handleResizeEnd = () => {
+      setIsResizing(false)
+    }
+
+    window.addEventListener('mousemove', handleResizeMove)
+    window.addEventListener('mouseup', handleResizeEnd)
+    
+    return () => {
+      window.removeEventListener('mousemove', handleResizeMove)
+      window.removeEventListener('mouseup', handleResizeEnd)
+    }
+  }, [isResizing])
+
   // Context menu component
   const renderContextMenu = () => {
     if (!contextMenu) return null
     
-    const element = elements.find(el => el.id === contextMenu.elementId)
-    const isVisible = element?.visible !== false
+    // Check if context menu is for a video segment or element
+    const isSegmentMenu = !!contextMenu.segmentId
     
-    const menuItems = [
-      { label: 'Copiar', icon: Copy, action: () => onCopyElement?.(contextMenu.elementId), shortcut: 'Ctrl+C' },
-      { label: 'Colar', icon: Clipboard, action: () => onPasteElement?.(), disabled: !clipboardElement, shortcut: 'Ctrl+V' },
-      { label: 'Duplicar', icon: CopyPlus, action: () => onDuplicateElement?.(contextMenu.elementId), shortcut: 'Ctrl+D' },
-      { type: 'divider' },
-      { label: isVisible ? 'Ocultar' : 'Mostrar', icon: isVisible ? EyeOff : Eye, action: () => onUpdateElement?.(contextMenu.elementId, { visible: !isVisible }) },
-      { label: 'Excluir', icon: Trash2, action: () => onDeleteElement?.(contextMenu.elementId), danger: true, shortcut: 'Del' },
-    ]
+    let menuItems = []
+    
+    if (isSegmentMenu) {
+      // Video segment context menu
+      menuItems = [
+        { label: 'Cortar no Tempo Atual', icon: Copy, action: () => onCutSegment?.(), shortcut: 'S' },
+        { label: 'Duplicar Segmento', icon: CopyPlus, action: () => onDuplicateSegment?.(contextMenu.segmentId), shortcut: 'Ctrl+D' },
+        { type: 'divider' },
+        { label: 'Excluir Segmento', icon: Trash2, action: () => onRemoveSegment?.(contextMenu.segmentId), danger: true, shortcut: 'Del' },
+      ]
+    } else {
+      // Element context menu
+      const element = elements.find(el => el.id === contextMenu.elementId)
+      const isVisible = element?.visible !== false
+      
+      menuItems = [
+        { label: 'Copiar', icon: Copy, action: () => onCopyElement?.(contextMenu.elementId), shortcut: 'Ctrl+C' },
+        { label: 'Colar', icon: Clipboard, action: () => onPasteElement?.(), disabled: !clipboardElement, shortcut: 'Ctrl+V' },
+        { label: 'Duplicar', icon: CopyPlus, action: () => onDuplicateElement?.(contextMenu.elementId), shortcut: 'Ctrl+D' },
+        { type: 'divider' },
+        { label: isVisible ? 'Ocultar' : 'Mostrar', icon: isVisible ? EyeOff : Eye, action: () => onUpdateElement?.(contextMenu.elementId, { visible: !isVisible }) },
+        { label: 'Excluir', icon: Trash2, action: () => onDeleteElement?.(contextMenu.elementId), danger: true, shortcut: 'Del' },
+      ]
+    }
 
     return (
       <div
@@ -227,7 +289,7 @@ function Timeline({
   // Group elements by type for track display
   const trackGroups = {
     text: elements.filter(el => el.type === 'text'),
-    counter: elements.filter(el => el.type === 'counter'),
+    metronome: elements.filter(el => el.type === 'metronome'),
     timer: elements.filter(el => el.type === 'timer'),
     alert: elements.filter(el => el.type === 'alert')
   }
@@ -285,48 +347,57 @@ function Timeline({
     return markers
   }
 
-  // Render waveform - static, mapped to timeline width
+  // Render waveform - reflects video segments (cuts and duplications)
   const renderWaveform = () => {
-    const numSamples = waveformData?.length || 2000
-    const pixelWidth = timelineWidth
+    if (!videoSegments || videoSegments.length === 0) return null
     
-    if (!waveformData || waveformData.length === 0) {
-      // Generate placeholder waveform for visual (seeded random for consistency)
-      const placeholderData = Array.from({ length: numSamples }, (_, i) => {
-        // Simple pseudo-random based on index for consistent look
-        const x = Math.sin(i * 0.05) * 0.4 + Math.sin(i * 0.02) * 0.3 + Math.sin(i * 0.01) * 0.2
-        return x
-      })
+    const numSamples = waveformData?.length || 2000
+    const useRealData = waveformData && waveformData.length > 0
+    
+    // Generate or use waveform data
+    const sourceData = useRealData ? waveformData : Array.from({ length: numSamples }, (_, i) => {
+      const x = Math.sin(i * 0.05) * 0.4 + Math.sin(i * 0.02) * 0.3 + Math.sin(i * 0.01) * 0.2
+      return x
+    })
+    
+    // Render waveform for each segment
+    let currentX = 0
+    const waveformPaths = []
+    
+    videoSegments.forEach((segment, segmentIndex) => {
+      const segmentStart = segment.startTime
+      const segmentEnd = segment.endTime || originalDuration
+      const segmentDuration = segmentEnd - segmentStart
+      const segmentWidth = timeToPixel(segmentDuration)
       
-      // Build SVG path for smooth waveform
-      let pathData = `M 0 32`
-      placeholderData.forEach((value, i) => {
-        const x = (i / placeholderData.length) * pixelWidth
+      // Calculate which part of the original waveform this segment represents
+      const startRatio = segmentStart / originalDuration
+      const endRatio = segmentEnd / originalDuration
+      const startSample = Math.floor(startRatio * sourceData.length)
+      const endSample = Math.ceil(endRatio * sourceData.length)
+      
+      // Extract the relevant portion of waveform data
+      const segmentData = sourceData.slice(startSample, endSample)
+      
+      if (segmentData.length === 0) return
+      
+      // Build path for this segment
+      let pathData = `M ${currentX} 32`
+      segmentData.forEach((value, i) => {
+        const x = currentX + (i / segmentData.length) * segmentWidth
         const y = 32 - value * 32
         pathData += ` L ${x} ${y}`
       })
       
-      return (
-        <svg 
-          className="absolute bottom-0 left-0 h-16 opacity-30"
-          style={{ width: `${timelineWidth}px` }}
-          preserveAspectRatio="none"
-          viewBox={`0 0 ${pixelWidth} 64`}
-        >
-          {/* Center line */}
-          <line x1="0" y1="32" x2={pixelWidth} y2="32" stroke="#666" strokeWidth="0.5" />
-          {/* Waveform path */}
-          <path d={pathData} stroke="#22c55e" strokeWidth="1" fill="none" />
-        </svg>
-      )
-    }
-
-    // Build SVG path for waveform visualization
-    let pathData = `M 0 32`
-    waveformData.forEach((value, i) => {
-      const x = (i / waveformData.length) * pixelWidth
-      const y = 32 - value * 32
-      pathData += ` L ${x} ${y}`
+      waveformPaths.push({
+        key: `segment-${segmentIndex}`,
+        path: pathData,
+        fillPath: pathData + ` L ${currentX + segmentWidth} 32 L ${currentX} 32 Z`,
+        startX: currentX,
+        width: segmentWidth
+      })
+      
+      currentX += segmentWidth
     })
     
     return (
@@ -334,14 +405,18 @@ function Timeline({
         className="absolute bottom-0 left-0 h-16"
         style={{ width: `${timelineWidth}px` }}
         preserveAspectRatio="none"
-        viewBox={`0 0 ${pixelWidth} 64`}
+        viewBox={`0 0 ${timelineWidth} 64`}
       >
         {/* Center line */}
-        <line x1="0" y1="32" x2={pixelWidth} y2="32" stroke="#444" strokeWidth="0.5" />
-        {/* Waveform path */}
-        <path d={pathData} stroke="#3b82f6" strokeWidth="1.5" fill="none" />
-        {/* Fill under waveform for visual effect */}
-        <path d={pathData + ` L ${pixelWidth} 32 L 0 32 Z`} fill="#3b82f6" opacity="0.1" />
+        <line x1="0" y1="32" x2={timelineWidth} y2="32" stroke="#444" strokeWidth="0.5" />
+        
+        {/* Render each segment's waveform */}
+        {waveformPaths.map(({ key, path, fillPath }) => (
+          <g key={key}>
+            <path d={path} stroke={useRealData ? "#3b82f6" : "#22c55e"} strokeWidth="1.5" fill="none" />
+            <path d={fillPath} fill={useRealData ? "#3b82f6" : "#22c55e"} opacity="0.1" />
+          </g>
+        ))}
       </svg>
     )
   }
@@ -418,7 +493,7 @@ function Timeline({
 
   // Calculate total height of all tracks for proper scrolling
   const calculateTotalTracksHeight = () => {
-    let totalHeight = 0
+    let totalHeight = 48 // Video track height
     
     if (trackGroups.text.length > 0) {
       const textRows = calculateRowIndex(trackGroups.text)
@@ -426,9 +501,9 @@ function Timeline({
       totalHeight += Math.max(32, maxRows * 28 + 8)
     }
     
-    if (trackGroups.counter.length > 0) {
-      const counterRows = calculateRowIndex(trackGroups.counter)
-      const maxRows = Math.max(...Array.from(counterRows.values())) + 1
+    if (trackGroups.metronome.length > 0) {
+      const metronomeRows = calculateRowIndex(trackGroups.metronome)
+      const maxRows = Math.max(...Array.from(metronomeRows.values())) + 1
       totalHeight += Math.max(32, maxRows * 28 + 8)
     }
     
@@ -468,6 +543,67 @@ function Timeline({
     ))
   }
 
+  // Render video segments track
+  const renderVideoSegments = () => {
+    if (!videoSegments || videoSegments.length === 0) return null
+
+    // Calculate timeline positions for each segment
+    let timelinePosition = 0
+    
+    return videoSegments.map((segment, index) => {
+      // Each segment's duration in the original video
+      const segmentDuration = (segment.endTime || originalDuration) - segment.startTime
+      
+      // Position in timeline (accumulated from previous segments)
+      const startX = timeToPixel(timelinePosition)
+      const width = timeToPixel(segmentDuration)
+      const isSelected = segment.id === selectedSegmentId
+      
+      // Store current position for this segment, then advance for next
+      const currentTimelineStart = timelinePosition
+      timelinePosition += segmentDuration
+
+      return (
+        <div
+          key={segment.id}
+          className={`absolute h-full rounded cursor-pointer transition-all ${
+            isSelected 
+              ? 'bg-gradient-to-r from-blue-600 to-blue-500 border-2 border-blue-400 shadow-lg' 
+              : 'bg-gradient-to-r from-green-600/80 to-emerald-600/80 border border-green-500/50 hover:from-green-500/90 hover:to-emerald-500/90'
+          }`}
+          style={{
+            left: `${startX}px`,
+            width: `${width}px`,
+            top: 0
+          }}
+          onClick={(e) => {
+            e.stopPropagation()
+            onSelectSegment?.(segment.id)
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onSelectSegment?.(segment.id)
+            setContextMenu({
+              x: e.clientX,
+              y: e.clientY,
+              segmentId: segment.id
+            })
+          }}
+          title={`Segmento ${index + 1} (${formatTime(segment.startTime)}-${formatTime(segment.endTime || originalDuration)}) - Velocidade: ${segment.speed}x\nClique para selecionar | S para cortar | Ctrl+D para duplicar | Del para remover`}
+        >
+          <div className="absolute inset-0 flex items-center justify-center text-xs text-white font-semibold pointer-events-none">
+            {segment.speed !== 1.0 ? `${segment.speed}x` : `${formatTime(segment.startTime)}-${formatTime(segment.endTime || originalDuration)}`}
+          </div>
+          
+          {/* Segment border indicators */}
+          <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-white/50" />
+          <div className="absolute right-0 top-0 bottom-0 w-0.5 bg-white/50" />
+        </div>
+      )
+    })
+  }
+
   // Render bar lines (vertical lines at the start of each measure/bar)
   const renderBarLines = () => {
     if (!bpmConfig || !bpmConfig.bpm || bpmConfig.bpm <= 0) return null
@@ -502,7 +638,18 @@ function Timeline({
   }
 
   return (
-    <div className="h-64 bg-gray-850 border-t border-gray-700 flex flex-col">
+    <div 
+      className="bg-gray-850 border-t border-gray-700 flex flex-col relative"
+      style={{ height: `${timelineHeight}px` }}
+    >
+      {/* Resize handle at the top */}
+      <div
+        className={`absolute top-0 left-0 right-0 h-2 cursor-ns-resize z-50 group ${isResizing ? 'bg-blue-500/50' : 'hover:bg-blue-500/30'}`}
+        onMouseDown={handleResizeStart}
+      >
+        <div className={`absolute top-0 left-1/2 -translate-x-1/2 w-12 h-1 rounded-full transition-colors ${isResizing ? 'bg-blue-400' : 'bg-gray-600 group-hover:bg-blue-400'}`} />
+      </div>
+      
       {/* Timeline Header with controls */}
       <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
         <div className="flex items-center gap-4">
@@ -567,6 +714,14 @@ function Timeline({
 
             {/* Tracks Container */}
             <div className="relative">
+              {/* Video Track - Always visible */}
+              <div className="relative border-b border-gray-700 h-12 bg-gray-850">
+                <span className="absolute left-2 top-1 text-xs text-gray-500 z-10">Vídeo</span>
+                <div className="absolute left-0 right-0 top-5 bottom-1">
+                  {renderVideoSegments()}
+                </div>
+              </div>
+
               {/* Text Track */}
               {trackGroups.text.length > 0 && (() => {
                 const textRows = calculateRowIndex(trackGroups.text)
@@ -579,14 +734,14 @@ function Timeline({
                 )
               })()}
 
-              {/* Counter Track */}
-              {trackGroups.counter.length > 0 && (() => {
-                const counterRows = calculateRowIndex(trackGroups.counter)
-                const maxRows = Math.max(...Array.from(counterRows.values())) + 1
+              {/* Metronome Track */}
+              {trackGroups.metronome.length > 0 && (() => {
+                const metronomeRows = calculateRowIndex(trackGroups.metronome)
+                const maxRows = Math.max(...Array.from(metronomeRows.values())) + 1
                 return (
                   <div className="relative border-b border-gray-700" style={{ height: `${Math.max(32, maxRows * 28 + 8)}px` }}>
-                    <span className="absolute left-2 top-1 text-xs text-gray-500 z-10">Contador</span>
-                    {trackGroups.counter.map(el => renderTrackItem(el, 'bg-purple-600', counterRows.get(el.id)))}
+                    <span className="absolute left-2 top-1 text-xs text-gray-500 z-10">Metrônomo</span>
+                    {trackGroups.metronome.map(el => renderTrackItem(el, 'bg-purple-600', metronomeRows.get(el.id)))}
                   </div>
                 )
               })()}

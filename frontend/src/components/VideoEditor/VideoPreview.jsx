@@ -125,7 +125,7 @@ function VideoPreview({
       let updates = {}
 
       // For text elements, we scale fontSize instead of width/height
-      if (element.type === 'text' || element.type === 'counter' || element.type === 'timer') {
+      if (element.type === 'text' || element.type === 'metronome' || element.type === 'timer') {
         // Calculate scale factor based on handle type
         let scaleFactor = 1
         
@@ -336,24 +336,24 @@ function VideoPreview({
           </div>
         )
 
-      case 'counter':
+      case 'metronome':
         const { bar, beat } = calculateBarBeat(currentTime, bpmConfig)
-        let counterText = ''
-        switch (element.counterType) {
+        let metronomeText = ''
+        switch (element.metronomeType) {
           case 'bar-beat':
-            counterText = `${bar}.${beat}`
+            metronomeText = `${bar}.${beat}`
             break
           case 'bar':
-            counterText = `${bar}`
+            metronomeText = `${bar}`
             break
           case 'beat':
-            counterText = `${beat}`
+            metronomeText = `${beat}`
             break
           case 'time':
-            counterText = formatTime(currentTime)
+            metronomeText = formatTime(currentTime)
             break
           default:
-            counterText = `${bar}.${beat}`
+            metronomeText = `${bar}.${beat}`
         }
         
         return (
@@ -380,7 +380,7 @@ function VideoPreview({
             }}
             onContextMenu={(e) => handleContextMenu(e, element)}
           >
-            {bar > 0 ? counterText : '--'}
+            {bar > 0 ? metronomeText : '--'}
             {renderResizeHandles(element)}
           </div>
         )

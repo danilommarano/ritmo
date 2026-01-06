@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Trash2, Eye, EyeOff, Music } from 'lucide-react'
-import { elementTypeLabels, alertTypeLabels, counterTypeLabels } from './utils'
+import { elementTypeLabels, alertTypeLabels, metronomeTypeLabels } from './utils'
 
 // Helper to parse color and opacity from various formats
 const parseColor = (color) => {
@@ -198,20 +198,20 @@ function ConfigurationBar({
     )
   }
 
-  // Render form for counter element
-  const renderCounterForm = () => {
+  // Render form for metronome element
+  const renderMetronomeForm = () => {
     const { opacity: currentBgOpacity } = parseColor(selectedElement.backgroundColor)
     
     return (
       <div className="space-y-4">
         <div>
-          <label className="block text-sm text-gray-400 mb-1">Tipo de Contador</label>
+          <label className="block text-sm text-gray-400 mb-1">Tipo de Metrônomo</label>
           <select
-            value={selectedElement.counterType}
-            onChange={(e) => onUpdateElement(selectedElement.id, { counterType: e.target.value })}
+            value={selectedElement.metronomeType}
+            onChange={(e) => onUpdateElement(selectedElement.id, { metronomeType: e.target.value })}
             className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
           >
-            {Object.entries(counterTypeLabels).map(([value, label]) => (
+            {Object.entries(metronomeTypeLabels).map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
             ))}
           </select>
@@ -494,7 +494,7 @@ function ConfigurationBar({
             <div className="flex items-center gap-2 mb-4">
               <div className={`w-3 h-3 rounded ${
                 selectedElement.type === 'text' ? 'bg-blue-500' :
-                selectedElement.type === 'counter' ? 'bg-purple-500' :
+                selectedElement.type === 'metronome' ? 'bg-purple-500' :
                 selectedElement.type === 'timer' ? 'bg-indigo-500' :
                 'bg-yellow-500'
               }`} />
@@ -502,7 +502,7 @@ function ConfigurationBar({
             </div>
 
             {selectedElement.type === 'text' && renderTextForm()}
-            {selectedElement.type === 'counter' && renderCounterForm()}
+            {selectedElement.type === 'metronome' && renderMetronomeForm()}
             {selectedElement.type === 'timer' && renderTimerForm()}
             {selectedElement.type === 'alert' && renderAlertForm()}
             {renderTimingControls()}

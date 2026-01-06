@@ -12,10 +12,10 @@ function Toolbar({ onAddElement }) {
       color: 'bg-blue-600 hover:bg-blue-500'
     },
     {
-      id: 'counter',
-      label: 'Contador (Bar.Beat)',
+      id: 'metronome',
+      label: 'Metrônomo (Bar.Beat)',
       icon: Music2,
-      onClick: () => onAddElement('counter'),
+      onClick: () => onAddElement('metronome'),
       color: 'bg-purple-600 hover:bg-purple-500'
     },
     {

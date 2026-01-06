@@ -85,7 +85,7 @@ export function pixelToPercent(pixel, containerSize) {
 // Element type labels in Portuguese
 export const elementTypeLabels = {
   text: 'Texto',
-  counter: 'Contador',
+  metronome: 'Metrônomo',
   timer: 'Cronômetro',
   alert: 'Alerta'
 }
@@ -96,8 +96,8 @@ export const alertTypeLabels = {
   circle: 'Bolinha'
 }
 
-// Counter type labels
-export const counterTypeLabels = {
+// Metronome type labels
+export const metronomeTypeLabels = {
   'bar-beat': 'Compasso e Batida',
   'bar': 'Apenas Compasso',
   'beat': 'Apenas Batida',

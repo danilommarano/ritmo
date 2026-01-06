@@ -435,6 +435,9 @@ class VideoViewSet(viewsets.ModelViewSet):
                     'offsetStart': 0
                 }
         
+        # Get video segments for cutting/duplicating
+        video_segments = request.data.get('video_segments', None)
+        
         try:
             # Get video metadata
             video_metadata = {
@@ -450,7 +453,8 @@ class VideoViewSet(viewsets.ModelViewSet):
                 start_time=start_time,
                 end_time=end_time,
                 video_metadata=video_metadata,
-                bpm_config=bpm_config
+                bpm_config=bpm_config,
+                video_segments=video_segments
             )
             
             # Return the file

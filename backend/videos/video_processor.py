@@ -197,10 +197,11 @@ def parse_color(color_str):
     return (named_colors.get(color_str.lower(), 'FFFFFF'), 1.0)
 
 
-def export_video_with_elements(video_path, elements, start_time=0, end_time=None, video_metadata=None, bpm_config=None):
+def export_video_with_elements(video_path, elements, start_time=0, end_time=None, video_metadata=None, bpm_config=None, video_segments=None):
     """
     Export video with visual elements rendered exactly as they appear in the frontend.
     Uses subprocess to run FFmpeg directly for better control over filter syntax.
+    Supports video segments for cutting and duplicating portions of the video.
     """
     try:
         if not video_metadata:
@@ -211,6 +212,7 @@ def export_video_with_elements(video_path, elements, start_time=0, end_time=None
         
         video_width = video_metadata.get('width', 1920)
         video_height = video_metadata.get('height', 1080)
+        original_duration = video_metadata.get('duration', end_time)
         
         if not bpm_config:
             bpm_config = {
@@ -226,6 +228,84 @@ def export_video_with_elements(video_path, elements, start_time=0, end_time=None
         print(f"Exporting video with {len(elements)} elements")
         print(f"Video dimensions: {video_width}x{video_height}")
         print(f"BPM config: {bpm_config}")
+        print(f"Video segments: {video_segments}")
+        
+        # If we have video segments, we need to process them first
+        # Each segment references a portion of the original video
+        if video_segments and len(video_segments) > 1:
+            # Create temporary files for each segment
+            segment_files = []
+            for i, segment in enumerate(video_segments):
+                seg_start = segment.get('start_time', 0)
+                seg_end = segment.get('end_time', original_duration)
+                seg_speed = segment.get('speed', 1.0)
+                seg_duration = seg_end - seg_start
+                
+                segment_output = os.path.join(output_dir, f'segment_{os.getpid()}_{i}.mp4')
+                segment_files.append(segment_output)
+                
+                # Extract this segment from the original video
+                seg_cmd = [
+                    'ffmpeg', '-y',
+                    '-ss', str(seg_start),
+                    '-t', str(seg_duration),
+                    '-i', video_path,
+                    '-c:v', 'libx264',
+                    '-preset', 'ultrafast',
+                    '-c:a', 'aac',
+                    segment_output
+                ]
+                
+                print(f"Creating segment {i}: {seg_start}s - {seg_end}s")
+                result = subprocess.run(seg_cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    print(f"Segment extraction failed: {result.stderr}")
+                    raise Exception(f"Failed to extract segment {i}")
+            
+            # Create a concat file
+            concat_file = os.path.join(output_dir, f'concat_{os.getpid()}.txt')
+            with open(concat_file, 'w') as f:
+                for seg_file in segment_files:
+                    f.write(f"file '{seg_file}'\n")
+            
+            # Concatenate all segments into a temporary file
+            concat_output = os.path.join(output_dir, f'concat_output_{os.getpid()}.mp4')
+            concat_cmd = [
+                'ffmpeg', '-y',
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', concat_file,
+                '-c', 'copy',
+                concat_output
+            ]
+            
+            print(f"Concatenating {len(segment_files)} segments")
+            result = subprocess.run(concat_cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"Concat failed: {result.stderr}")
+                raise Exception(f"Failed to concatenate segments")
+            
+            # Use the concatenated video as input for element rendering
+            video_path = concat_output
+            
+            # Clean up segment files (keep concat output for now)
+            for seg_file in segment_files:
+                try:
+                    os.remove(seg_file)
+                except:
+                    pass
+            try:
+                os.remove(concat_file)
+            except:
+                pass
+            
+            # Update end_time to match the new concatenated duration
+            total_duration = sum(
+                (seg.get('end_time', original_duration) - seg.get('start_time', 0))
+                for seg in video_segments
+            )
+            end_time = total_duration
+            start_time = 0
         
         # Build filter chain as a list of filter strings
         filters = []
@@ -263,11 +343,12 @@ def export_video_with_elements(video_path, elements, start_time=0, end_time=None
                 
                 filters.append(filter_str)
             
-            elif el_type == 'counter':
+            elif el_type == 'counter' or el_type == 'metronome':
                 fontsize = element.get('fontSize', 36)
                 font_color, _ = parse_color(element.get('fontColor', '#FFFFFF'))
                 has_bg = element.get('hasBackground', True)
-                counter_type = element.get('counterType', 'bar-beat')
+                # Support both old 'counterType' and new 'metronomeType' field names
+                counter_type = element.get('metronomeType') or element.get('counterType', 'bar-beat')
                 
                 # Position centered
                 x_expr = f"(w*{x_percent}/100)-(text_w/2)"
