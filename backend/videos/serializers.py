@@ -2,7 +2,7 @@
 Serializers for video models
 """
 from rest_framework import serializers
-from .models import Video, RhythmGrid, Fragment
+from .models import Video, RhythmGrid, Fragment, VideoElement
 
 
 class RhythmGridSerializer(serializers.ModelSerializer):
@@ -141,6 +141,31 @@ class VideoSerializer(serializers.ModelSerializer):
     def get_fragments_count(self, obj):
         """Get total number of fragments for this video"""
         return obj.fragments.count()
+
+
+class VideoElementSerializer(serializers.ModelSerializer):
+    """Serializer for VideoElement model"""
+    
+    class Meta:
+        model = VideoElement
+        fields = [
+            'id',
+            'video',
+            'element_type',
+            'start_time',
+            'end_time',
+            'x',
+            'y',
+            'visible',
+            'properties',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def to_representation(self, instance):
+        """Convert to frontend format"""
+        return instance.to_dict()
 
 
 class VideoListSerializer(serializers.ModelSerializer):

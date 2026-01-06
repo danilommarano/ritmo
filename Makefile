@@ -69,7 +69,7 @@ help:
 ## Sobe containers para desenvolvimento
 dev-up:
 	@echo "$(GREEN)🚀 Subindo containers para desenvolvimento...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) up -d
+	docker-compose -f $(COMPOSE_FILE_DEV) up --build --remove-orphans --force-recreate -d
 	@echo "$(GREEN)✅ Containers de desenvolvimento iniciados!$(NC)"
 	@echo "$(YELLOW)Frontend: http://localhost:5173$(NC)"
 	@echo "$(YELLOW)Backend: http://localhost:8000$(NC)"

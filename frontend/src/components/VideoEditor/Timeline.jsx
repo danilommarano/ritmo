@@ -1,0 +1,656 @@
+// Timeline Component - Shows element tracks, cuts, waveform and playhead
+
+import { useRef, useCallback, useEffect, useState } from 'react'
+import { Play, Pause, ZoomIn, ZoomOut, Copy, Clipboard, CopyPlus, Trash2, Eye, EyeOff, Clock, Music2 } from 'lucide-react'
+import { formatTime, elementTypeLabels } from './utils'
+
+function Timeline({
+  elements,
+  cuts,
+  selectedElementId,
+  onSelectElement,
+  onUpdateElement,
+  onRemoveCut,
+  currentTime,
+  duration,
+  onSeek,
+  waveformData,
+  isPlaying,
+  onPlayPause,
+  onCopyElement,
+  onPasteElement,
+  onDuplicateElement,
+  onDeleteElement,
+  clipboardElement,
+  bpmConfig
+}) {
+  const timelineRef = useRef(null)
+  const [zoom, setZoom] = useState(1) // pixels per second
+  const [scrollLeft, setScrollLeft] = useState(0)
+  const [draggingElement, setDraggingElement] = useState(null)
+  const [dragType, setDragType] = useState(null) // 'move', 'start', 'end'
+  const [dragStartX, setDragStartX] = useState(0)
+  const [dragStartTime, setDragStartTime] = useState(0)
+  const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false)
+  const [contextMenu, setContextMenu] = useState(null) // { x, y, elementId }
+  const [rulerMode, setRulerMode] = useState('bars') // 'time' or 'bars'
+
+  // Calculate timeline width based on duration and zoom
+  const basePixelsPerSecond = 50
+  const pixelsPerSecond = basePixelsPerSecond * zoom
+  const timelineWidth = Math.max(duration * pixelsPerSecond, 800)
+
+  // Convert time to pixel position
+  const timeToPixel = useCallback((time) => {
+    return time * pixelsPerSecond
+  }, [pixelsPerSecond])
+
+  // Convert pixel position to time
+  const pixelToTime = useCallback((pixel) => {
+    return pixel / pixelsPerSecond
+  }, [pixelsPerSecond])
+
+  // Handle timeline mousedown to start playhead drag
+  const handleTimelineMouseDown = (e) => {
+    if (draggingElement) return
+    
+    // Check if clicking on an element (not the timeline background)
+    if (e.target.closest('[data-element-track]')) return
+    
+    const rect = timelineRef.current.getBoundingClientRect()
+    const scrollContainer = timelineRef.current.parentElement
+    const x = e.clientX - rect.left + scrollContainer.scrollLeft
+    const time = Math.max(0, Math.min(pixelToTime(x), duration))
+    onSeek(time)
+    setIsDraggingPlayhead(true)
+  }
+
+  // Handle playhead drag
+  useEffect(() => {
+    if (!isDraggingPlayhead) return
+
+    const handleMouseMove = (e) => {
+      if (!timelineRef.current) return
+      const rect = timelineRef.current.getBoundingClientRect()
+      const scrollContainer = timelineRef.current.parentElement
+      const x = e.clientX - rect.left + scrollContainer.scrollLeft
+      // Use pixelsPerSecond directly instead of pixelToTime to avoid dependency issues
+      const time = Math.max(0, Math.min(x / pixelsPerSecond, duration))
+      onSeek(time)
+    }
+
+    const handleMouseUp = () => {
+      setIsDraggingPlayhead(false)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDraggingPlayhead, pixelsPerSecond, duration, onSeek])
+
+  // Handle element drag start
+  const handleElementDragStart = (e, element, type) => {
+    e.stopPropagation()
+    setContextMenu(null)
+    setDraggingElement(element.id)
+    setDragType(type)
+    setDragStartX(e.clientX)
+    setDragStartTime(type === 'start' ? element.startTime : type === 'end' ? element.endTime : element.startTime)
+    onSelectElement(element.id)
+  }
+
+  // Handle right-click context menu on timeline elements
+  const handleContextMenu = useCallback((e, element) => {
+    e.preventDefault()
+    e.stopPropagation()
+    onSelectElement(element.id)
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      elementId: element.id
+    })
+  }, [onSelectElement])
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => setContextMenu(null)
+    if (contextMenu) {
+      window.addEventListener('click', handleClickOutside)
+      return () => window.removeEventListener('click', handleClickOutside)
+    }
+  }, [contextMenu])
+
+  // Context menu component
+  const renderContextMenu = () => {
+    if (!contextMenu) return null
+    
+    const element = elements.find(el => el.id === contextMenu.elementId)
+    const isVisible = element?.visible !== false
+    
+    const menuItems = [
+      { label: 'Copiar', icon: Copy, action: () => onCopyElement?.(contextMenu.elementId), shortcut: 'Ctrl+C' },
+      { label: 'Colar', icon: Clipboard, action: () => onPasteElement?.(), disabled: !clipboardElement, shortcut: 'Ctrl+V' },
+      { label: 'Duplicar', icon: CopyPlus, action: () => onDuplicateElement?.(contextMenu.elementId), shortcut: 'Ctrl+D' },
+      { type: 'divider' },
+      { label: isVisible ? 'Ocultar' : 'Mostrar', icon: isVisible ? EyeOff : Eye, action: () => onUpdateElement?.(contextMenu.elementId, { visible: !isVisible }) },
+      { label: 'Excluir', icon: Trash2, action: () => onDeleteElement?.(contextMenu.elementId), danger: true, shortcut: 'Del' },
+    ]
+
+    return (
+      <div
+        className="fixed bg-gray-800 border border-gray-600 rounded-lg shadow-xl py-1 z-50 min-w-[160px]"
+        style={{ left: contextMenu.x, top: contextMenu.y }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {menuItems.map((item, index) => {
+          if (item.type === 'divider') {
+            return <div key={index} className="border-t border-gray-600 my-1" />
+          }
+          return (
+            <button
+              key={item.label}
+              onClick={() => {
+                item.action()
+                setContextMenu(null)
+              }}
+              disabled={item.disabled}
+              className={`w-full flex items-center gap-3 px-3 py-2 text-sm text-left hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed ${item.danger ? 'text-red-400 hover:text-red-300' : 'text-white'}`}
+            >
+              <item.icon className="w-4 h-4" />
+              <span className="flex-1">{item.label}</span>
+              <span className="text-xs text-gray-500">{item.shortcut}</span>
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
+  // Handle drag move and end
+  useEffect(() => {
+    if (!draggingElement) return
+
+    const handleMouseMove = (e) => {
+      const deltaX = e.clientX - dragStartX
+      const deltaTime = pixelToTime(deltaX)
+      const element = elements.find(el => el.id === draggingElement)
+      if (!element) return
+
+      if (dragType === 'move') {
+        const newStart = Math.max(0, Math.min(dragStartTime + deltaTime, duration - (element.endTime - element.startTime)))
+        const elementDuration = element.endTime - element.startTime
+        onUpdateElement(draggingElement, {
+          startTime: newStart,
+          endTime: newStart + elementDuration
+        })
+      } else if (dragType === 'start') {
+        const newStart = Math.max(0, Math.min(dragStartTime + deltaTime, element.endTime - 0.1))
+        onUpdateElement(draggingElement, { startTime: newStart })
+      } else if (dragType === 'end') {
+        const newEnd = Math.max(element.startTime + 0.1, Math.min(dragStartTime + deltaTime, duration))
+        onUpdateElement(draggingElement, { endTime: newEnd })
+      }
+    }
+
+    const handleMouseUp = () => {
+      setDraggingElement(null)
+      setDragType(null)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [draggingElement, dragType, dragStartX, dragStartTime, elements, duration, pixelToTime, onUpdateElement])
+
+  // Auto-scroll to keep playhead visible
+  useEffect(() => {
+    if (!timelineRef.current || !isPlaying) return
+    
+    const scrollContainer = timelineRef.current.parentElement
+    const playheadX = timeToPixel(currentTime)
+    const containerWidth = scrollContainer.clientWidth
+    const scrollLeft = scrollContainer.scrollLeft
+    
+    if (playheadX < scrollLeft + 100 || playheadX > scrollLeft + containerWidth - 100) {
+      scrollContainer.scrollLeft = playheadX - containerWidth / 2
+    }
+  }, [currentTime, isPlaying, timeToPixel])
+
+  // Group elements by type for track display
+  const trackGroups = {
+    text: elements.filter(el => el.type === 'text'),
+    counter: elements.filter(el => el.type === 'counter'),
+    timer: elements.filter(el => el.type === 'timer'),
+    alert: elements.filter(el => el.type === 'alert')
+  }
+
+  // Render time markers
+  const renderTimeMarkers = () => {
+    const markers = []
+    const interval = zoom >= 2 ? 1 : zoom >= 1 ? 5 : 10 // Adjust interval based on zoom
+    
+    for (let t = 0; t <= duration; t += interval) {
+      markers.push(
+        <div
+          key={t}
+          className="absolute top-0 h-full border-l border-gray-700 text-xs text-gray-500"
+          style={{ left: `${timeToPixel(t)}px` }}
+        >
+          <span className="absolute top-1 left-1">{formatTime(t)}</span>
+        </div>
+      )
+    }
+    return markers
+  }
+
+  // Render bar markers (measure ruler)
+  const renderBarMarkers = () => {
+    if (!bpmConfig || !bpmConfig.bpm || bpmConfig.bpm <= 0) {
+      return <div className="text-xs text-gray-500 p-1">Configure o BPM para ver os compassos</div>
+    }
+    
+    const { bpm, timeSignatureNum = 4, offsetStart = 0 } = bpmConfig
+    const beatsPerBar = timeSignatureNum
+    const secondsPerBeat = 60 / bpm
+    const secondsPerBar = secondsPerBeat * beatsPerBar
+    
+    const markers = []
+    let barTime = offsetStart
+    let barNumber = 1
+    
+    while (barTime <= duration) {
+      if (barTime >= 0) {
+        markers.push(
+          <div
+            key={`bar-marker-${barNumber}`}
+            className="absolute top-0 h-full border-l border-blue-600/50 text-xs text-blue-400"
+            style={{ left: `${timeToPixel(barTime)}px` }}
+          >
+            <span className="absolute top-1 left-1 font-mono">{barNumber}</span>
+          </div>
+        )
+      }
+      barTime += secondsPerBar
+      barNumber++
+    }
+    
+    return markers
+  }
+
+  // Render waveform - static, mapped to timeline width
+  const renderWaveform = () => {
+    const numSamples = waveformData?.length || 2000
+    const pixelWidth = timelineWidth
+    
+    if (!waveformData || waveformData.length === 0) {
+      // Generate placeholder waveform for visual (seeded random for consistency)
+      const placeholderData = Array.from({ length: numSamples }, (_, i) => {
+        // Simple pseudo-random based on index for consistent look
+        const x = Math.sin(i * 0.05) * 0.4 + Math.sin(i * 0.02) * 0.3 + Math.sin(i * 0.01) * 0.2
+        return x
+      })
+      
+      // Build SVG path for smooth waveform
+      let pathData = `M 0 32`
+      placeholderData.forEach((value, i) => {
+        const x = (i / placeholderData.length) * pixelWidth
+        const y = 32 - value * 32
+        pathData += ` L ${x} ${y}`
+      })
+      
+      return (
+        <svg 
+          className="absolute bottom-0 left-0 h-16 opacity-30"
+          style={{ width: `${timelineWidth}px` }}
+          preserveAspectRatio="none"
+          viewBox={`0 0 ${pixelWidth} 64`}
+        >
+          {/* Center line */}
+          <line x1="0" y1="32" x2={pixelWidth} y2="32" stroke="#666" strokeWidth="0.5" />
+          {/* Waveform path */}
+          <path d={pathData} stroke="#22c55e" strokeWidth="1" fill="none" />
+        </svg>
+      )
+    }
+
+    // Build SVG path for waveform visualization
+    let pathData = `M 0 32`
+    waveformData.forEach((value, i) => {
+      const x = (i / waveformData.length) * pixelWidth
+      const y = 32 - value * 32
+      pathData += ` L ${x} ${y}`
+    })
+    
+    return (
+      <svg 
+        className="absolute bottom-0 left-0 h-16"
+        style={{ width: `${timelineWidth}px` }}
+        preserveAspectRatio="none"
+        viewBox={`0 0 ${pixelWidth} 64`}
+      >
+        {/* Center line */}
+        <line x1="0" y1="32" x2={pixelWidth} y2="32" stroke="#444" strokeWidth="0.5" />
+        {/* Waveform path */}
+        <path d={pathData} stroke="#3b82f6" strokeWidth="1.5" fill="none" />
+        {/* Fill under waveform for visual effect */}
+        <path d={pathData + ` L ${pixelWidth} 32 L 0 32 Z`} fill="#3b82f6" opacity="0.1" />
+      </svg>
+    )
+  }
+
+  // Render element track item with row index for vertical positioning
+  const renderTrackItem = (element, trackColor, rowIndex = 0) => {
+    const isSelected = element.id === selectedElementId
+    const left = timeToPixel(element.startTime)
+    const width = timeToPixel(element.endTime - element.startTime)
+    const rowHeight = 28 // Height per row including gap
+
+    return (
+      <div
+        key={element.id}
+        data-element-track="true"
+        className={`absolute h-6 rounded cursor-pointer flex items-center ${trackColor} ${isSelected ? 'ring-2 ring-white' : ''}`}
+        style={{
+          left: `${left}px`,
+          width: `${Math.max(width, 20)}px`,
+          top: `${4 + rowIndex * rowHeight}px`
+        }}
+        onMouseDown={(e) => handleElementDragStart(e, element, 'move')}
+        onContextMenu={(e) => handleContextMenu(e, element)}
+      >
+        {/* Left resize handle */}
+        <div
+          className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/30"
+          onMouseDown={(e) => handleElementDragStart(e, element, 'start')}
+        />
+        
+        {/* Content */}
+        <span className="text-xs text-white truncate px-2 flex-1">
+          {element.type === 'text' ? element.content : elementTypeLabels[element.type]}
+        </span>
+        
+        {/* Right resize handle */}
+        <div
+          className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/30"
+          onMouseDown={(e) => handleElementDragStart(e, element, 'end')}
+        />
+      </div>
+    )
+  }
+
+  // Calculate row index for each element to avoid overlaps
+  const calculateRowIndex = (elements) => {
+    const sortedElements = [...elements].sort((a, b) => a.startTime - b.startTime)
+    const rows = [] // Each row contains end times of elements in that row
+    const elementRows = new Map()
+
+    for (const element of sortedElements) {
+      let assignedRow = -1
+      
+      // Find first row where this element fits (no overlap)
+      for (let i = 0; i < rows.length; i++) {
+        if (rows[i] <= element.startTime) {
+          assignedRow = i
+          rows[i] = element.endTime
+          break
+        }
+      }
+      
+      // If no existing row fits, create a new one
+      if (assignedRow === -1) {
+        assignedRow = rows.length
+        rows.push(element.endTime)
+      }
+      
+      elementRows.set(element.id, assignedRow)
+    }
+
+    return elementRows
+  }
+
+  // Calculate total height of all tracks for proper scrolling
+  const calculateTotalTracksHeight = () => {
+    let totalHeight = 0
+    
+    if (trackGroups.text.length > 0) {
+      const textRows = calculateRowIndex(trackGroups.text)
+      const maxRows = Math.max(...Array.from(textRows.values())) + 1
+      totalHeight += Math.max(32, maxRows * 28 + 8)
+    }
+    
+    if (trackGroups.counter.length > 0) {
+      const counterRows = calculateRowIndex(trackGroups.counter)
+      const maxRows = Math.max(...Array.from(counterRows.values())) + 1
+      totalHeight += Math.max(32, maxRows * 28 + 8)
+    }
+    
+    if (trackGroups.timer.length > 0) {
+      const timerRows = calculateRowIndex(trackGroups.timer)
+      const maxRows = Math.max(...Array.from(timerRows.values())) + 1
+      totalHeight += Math.max(32, maxRows * 28 + 8)
+    }
+    
+    if (trackGroups.alert.length > 0) {
+      const alertRows = calculateRowIndex(trackGroups.alert)
+      const maxRows = Math.max(...Array.from(alertRows.values())) + 1
+      totalHeight += Math.max(32, maxRows * 28 + 8)
+    }
+    
+    return totalHeight
+  }
+
+  const tracksHeight = calculateTotalTracksHeight()
+  const timelineContentHeight = 6 + tracksHeight + 16 + 200 // header + tracks + waveform + extra padding
+
+  // Render cuts
+  const renderCuts = () => {
+    return cuts.map((cutTime, i) => (
+      <div
+        key={i}
+        className="absolute top-0 bottom-0 w-0.5 bg-red-500 cursor-pointer hover:bg-red-400 z-20"
+        style={{ left: `${timeToPixel(cutTime)}px` }}
+        onClick={(e) => {
+          e.stopPropagation()
+          if (confirm('Remover este corte?')) {
+            onRemoveCut(cutTime)
+          }
+        }}
+        title={`Corte em ${formatTime(cutTime)}`}
+      />
+    ))
+  }
+
+  // Render bar lines (vertical lines at the start of each measure/bar)
+  const renderBarLines = () => {
+    if (!bpmConfig || !bpmConfig.bpm || bpmConfig.bpm <= 0) return null
+    
+    const { bpm, timeSignatureNum = 4, offsetStart = 0 } = bpmConfig
+    const beatsPerBar = timeSignatureNum
+    const secondsPerBeat = 60 / bpm
+    const secondsPerBar = secondsPerBeat * beatsPerBar
+    
+    const lines = []
+    let barTime = offsetStart
+    let barNumber = 1
+    
+    while (barTime <= duration) {
+      if (barTime >= 0) {
+        lines.push(
+          <div
+            key={`bar-${barNumber}`}
+            className="absolute top-0 bottom-0 border-l border-blue-500/30 z-5 pointer-events-none"
+            style={{ left: `${timeToPixel(barTime)}px` }}
+            title={`Compasso ${barNumber}`}
+          >
+            <span className="absolute top-7 left-1 text-[10px] text-blue-400/50">{barNumber}</span>
+          </div>
+        )
+      }
+      barTime += secondsPerBar
+      barNumber++
+    }
+    
+    return lines
+  }
+
+  return (
+    <div className="h-64 bg-gray-850 border-t border-gray-700 flex flex-col">
+      {/* Timeline Header with controls */}
+      <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={onPlayPause}
+            className="flex items-center justify-center w-8 h-8 rounded-full bg-white text-gray-900 hover:bg-gray-200 transition-colors"
+          >
+            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+          </button>
+          <span className="text-sm text-gray-300 font-mono">
+            {formatTime(currentTime, true)} <span className="text-gray-500">/</span> {formatTime(duration)}
+          </span>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          {/* Ruler mode toggle */}
+          <button
+            onClick={() => setRulerMode(mode => mode === 'time' ? 'bars' : 'time')}
+            className={`p-1.5 rounded transition-colors ${rulerMode === 'bars' ? 'bg-blue-600 text-white' : 'hover:bg-gray-700'}`}
+            title={rulerMode === 'bars' ? 'Régua de compassos (clique para tempo)' : 'Régua de tempo (clique para compassos)'}
+          >
+            {rulerMode === 'bars' ? <Music2 className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
+          </button>
+          
+          <span className="text-gray-600">|</span>
+          
+          <button
+            onClick={() => setZoom(z => Math.max(0.25, z / 1.5))}
+            className="p-1.5 rounded hover:bg-gray-700 transition-colors"
+            title="Diminuir zoom"
+          >
+            <ZoomOut className="w-4 h-4" />
+          </button>
+          <span className="text-xs text-gray-500 w-12 text-center">{Math.round(zoom * 100)}%</span>
+          <button
+            onClick={() => setZoom(z => Math.min(4, z * 1.5))}
+            className="p-1.5 rounded hover:bg-gray-700 transition-colors"
+            title="Aumentar zoom"
+          >
+            <ZoomIn className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Timeline Content with fixed waveform at bottom */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Scrollable tracks area */}
+        <div className="flex-1 overflow-auto" onScroll={(e) => setScrollLeft(e.target.scrollLeft)}>
+          <div
+            ref={timelineRef}
+            className="relative"
+            style={{ width: `${timelineWidth}px`, minWidth: '100%', minHeight: `${timelineContentHeight - 64}px` }}
+            onMouseDown={handleTimelineMouseDown}
+          >
+            {/* Bar lines (measure markers) - always visible behind elements */}
+            {renderBarLines()}
+
+            {/* Ruler - sticky at top, switches between time and bars */}
+            <div className="sticky top-0 left-0 right-0 h-6 bg-gray-800 border-b border-gray-700 z-20">
+              {rulerMode === 'time' ? renderTimeMarkers() : renderBarMarkers()}
+            </div>
+
+            {/* Tracks Container */}
+            <div className="relative">
+              {/* Text Track */}
+              {trackGroups.text.length > 0 && (() => {
+                const textRows = calculateRowIndex(trackGroups.text)
+                const maxRows = Math.max(...Array.from(textRows.values())) + 1
+                return (
+                  <div className="relative border-b border-gray-700" style={{ height: `${Math.max(32, maxRows * 28 + 8)}px` }}>
+                    <span className="absolute left-2 top-1 text-xs text-gray-500 z-10">Texto</span>
+                    {trackGroups.text.map(el => renderTrackItem(el, 'bg-blue-600', textRows.get(el.id)))}
+                  </div>
+                )
+              })()}
+
+              {/* Counter Track */}
+              {trackGroups.counter.length > 0 && (() => {
+                const counterRows = calculateRowIndex(trackGroups.counter)
+                const maxRows = Math.max(...Array.from(counterRows.values())) + 1
+                return (
+                  <div className="relative border-b border-gray-700" style={{ height: `${Math.max(32, maxRows * 28 + 8)}px` }}>
+                    <span className="absolute left-2 top-1 text-xs text-gray-500 z-10">Contador</span>
+                    {trackGroups.counter.map(el => renderTrackItem(el, 'bg-purple-600', counterRows.get(el.id)))}
+                  </div>
+                )
+              })()}
+
+              {/* Timer Track */}
+              {trackGroups.timer.length > 0 && (() => {
+                const timerRows = calculateRowIndex(trackGroups.timer)
+                const maxRows = Math.max(...Array.from(timerRows.values())) + 1
+                return (
+                  <div className="relative border-b border-gray-700" style={{ height: `${Math.max(32, maxRows * 28 + 8)}px` }}>
+                    <span className="absolute left-2 top-1 text-xs text-gray-500 z-10">Cronômetro</span>
+                    {trackGroups.timer.map(el => renderTrackItem(el, 'bg-indigo-600', timerRows.get(el.id)))}
+                  </div>
+                )
+              })()}
+
+              {/* Alert Track */}
+              {trackGroups.alert.length > 0 && (() => {
+                const alertRows = calculateRowIndex(trackGroups.alert)
+                const maxRows = Math.max(...Array.from(alertRows.values())) + 1
+                return (
+                  <div className="relative border-b border-gray-700" style={{ height: `${Math.max(32, maxRows * 28 + 8)}px` }}>
+                    <span className="absolute left-2 top-1 text-xs text-gray-500 z-10">Alerta</span>
+                    {trackGroups.alert.map(el => renderTrackItem(el, 'bg-yellow-600', alertRows.get(el.id)))}
+                  </div>
+                )
+              })()}
+
+              {/* Cuts */}
+              {renderCuts()}
+            </div>
+
+            {/* Playhead in scrollable area */}
+            <div
+              className="absolute top-0 bottom-0 w-0.5 bg-white z-30 pointer-events-none"
+              style={{ left: `${timeToPixel(currentTime)}px` }}
+            >
+              <div className="absolute -top-0 left-1/2 -translate-x-1/2 w-3 h-3 bg-white rotate-45" />
+            </div>
+          </div>
+        </div>
+
+        {/* Fixed Waveform at bottom - follows horizontal scroll */}
+        <div className="h-16 bg-gray-900/90 border-t border-gray-700 overflow-x-hidden">
+          <div 
+            className="relative h-full"
+            style={{ width: `${timelineWidth}px`, transform: `translateX(-${scrollLeft}px)` }}
+          >
+            {renderWaveform()}
+            {/* Playhead in waveform */}
+            <div
+              className="absolute top-0 bottom-0 w-0.5 bg-white z-30 pointer-events-none"
+              style={{ left: `${timeToPixel(currentTime)}px` }}
+            />
+            {/* Bar lines in waveform */}
+            {renderBarLines()}
+          </div>
+        </div>
+      </div>
+
+      {/* Context Menu */}
+      {renderContextMenu()}
+    </div>
+  )
+}
+
+export default Timeline

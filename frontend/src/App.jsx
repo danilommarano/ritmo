@@ -4,7 +4,7 @@ import LandingPage from './components/LandingPage'
 import VideoLibrary from './pages/VideoLibrary'
 import VideoPlayer from './pages/VideoPlayer'
 import VideoUpload from './pages/VideoUpload'
-import RhythmEditor from './pages/RhythmEditor'
+import VideoEditor from './components/VideoEditor'
 import './App.css'
 
 function App() {
@@ -27,11 +27,8 @@ function App() {
             <VideoUpload />
           </Layout>
         } />
-        <Route path="/editor/:id" element={
-          <Layout>
-            <RhythmEditor />
-          </Layout>
-        } />
+        {/* Video Editor - Full screen without Layout */}
+        <Route path="/editor/:id" element={<VideoEditor />} />
       </Routes>
     </Router>
   )

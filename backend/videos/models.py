@@ -199,6 +199,67 @@ class RhythmGrid(TimeStampedModel):
         return total_bars
 
 
+class VideoElement(TimeStampedModel):
+    """
+    Visual elements added to a video (text, counter, alert).
+    Stores all editor elements for persistence.
+    """
+    ELEMENT_TYPES = [
+        ('text', 'Text'),
+        ('counter', 'Counter'),
+        ('alert', 'Alert'),
+    ]
+    
+    video = models.ForeignKey(
+        Video,
+        on_delete=models.CASCADE,
+        related_name='elements'
+    )
+    
+    # Element type and timing
+    element_type = models.CharField(max_length=20, choices=ELEMENT_TYPES)
+    start_time = models.FloatField(default=0.0, help_text="Start time in seconds")
+    end_time = models.FloatField(help_text="End time in seconds")
+    
+    # Position (percentage 0-100)
+    x = models.FloatField(default=50.0, help_text="X position as percentage")
+    y = models.FloatField(default=50.0, help_text="Y position as percentage")
+    
+    # Visibility
+    visible = models.BooleanField(default=True)
+    
+    # Element-specific data stored as JSON
+    properties = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Element-specific properties (content, fontSize, fontColor, etc.)"
+    )
+    
+    class Meta:
+        ordering = ['start_time']
+        indexes = [
+            models.Index(fields=['video', 'element_type']),
+        ]
+    
+    def __str__(self):
+        return f"{self.element_type} on {self.video.title} ({self.start_time}s - {self.end_time}s)"
+    
+    def to_dict(self):
+        """Convert to dictionary format used by frontend"""
+        data = {
+            'id': str(self.id),
+            'type': self.element_type,
+            'startTime': self.start_time,
+            'endTime': self.end_time,
+            'x': self.x,
+            'y': self.y,
+            'visible': self.visible,
+        }
+        # Merge properties
+        data.update(self.properties)
+        return data
+
+
 class Fragment(TimeStampedModel):
     """
     Pedagogical unit - a semantic clip for study.

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import './RhythmEditor.css'
+import { Play, Pause, Download, Settings, Music, Timer, ArrowLeft, Zap, RotateCcw } from 'lucide-react'
 
 function RhythmEditor() {
   const { id } = useParams()
@@ -284,208 +284,338 @@ function RhythmEditor() {
   }
 
   if (loading) {
-    return <div className="loading">Carregando vídeo...</div>
+    return (
+      <div className="min-h-96 flex items-center justify-center">
+        <div className="flex items-center space-x-3 text-ritmo-600">
+          <div className="w-6 h-6 border-2 border-ritmo-600 border-t-transparent rounded-full animate-spin" />
+          <span className="text-lg font-medium">Carregando vídeo...</span>
+        </div>
+      </div>
+    )
   }
 
   if (error) {
     return (
-      <div className="error-container">
-        <div className="error">Erro: {error}</div>
-        <Link to="/" className="back-link">← Voltar para biblioteca</Link>
+      <div className="min-h-96 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto">
+            <Music className="w-8 h-8 text-red-600" />
+          </div>
+          <h3 className="text-xl font-semibold text-gray-900">Erro ao carregar vídeo</h3>
+          <p className="text-gray-600">{error}</p>
+          <Link 
+            to="/app"
+            className="inline-flex items-center space-x-2 px-6 py-2 bg-ritmo-gradient text-white rounded-full hover:shadow-lg transition-all duration-300 transform hover:scale-105"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Voltar para biblioteca</span>
+          </Link>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="rhythm-editor">
-      <div className="editor-header">
-        <Link to="/" className="back-link">← Voltar</Link>
-        <h1>{video.title}</h1>
+    <div className="max-w-7xl mx-auto px-6 py-8">
+      {/* Header */}
+      <div className="mb-8">
+        <Link
+          to="/app"
+          className="flex items-center space-x-2 text-gray-600 hover:text-ritmo-600 transition-colors mb-6"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Voltar para Biblioteca</span>
+        </Link>
+        
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-4xl font-bold text-gray-900 mb-2">
+              Editor de Ritmo
+            </h1>
+            <p className="text-xl text-gray-600">
+              {video.title}
+            </p>
+          </div>
+        </div>
       </div>
 
-      <div className="editor-content">
-        <div className="video-section">
-          <div className="video-container">
-            <video
-              ref={videoRef}
-              src={video.file_url}
-              onTimeUpdate={handleTimeUpdate}
-              onPlay={() => setIsPlaying(true)}
-              onPause={() => setIsPlaying(false)}
-              className="video-player"
-            >
-              Seu navegador não suporta reprodução de vídeos.
-            </video>
-            
-            {/* Tap flash indicator */}
-            {showTapFlash && <div className="tap-flash"></div>}
-            
-            <div className="rhythm-display">
-              {isRecording ? (
-                <div className="recording-display">
-                  🔴 GRAVANDO - Pressione ESPAÇO
-                  <div className="tap-count">{taps.length} batidas</div>
-                </div>
-              ) : currentBar > 0 ? (
-                <>
-                  <div className="bar-display">Compasso: {currentBar}</div>
-                  <div className="beat-display">Batida: {currentBeat}</div>
-                </>
-              ) : (
-                <div className="waiting-display">Aguardando início...</div>
+      <div className="grid lg:grid-cols-3 gap-8">
+        {/* Video Section */}
+        <div className="lg:col-span-2 space-y-6">
+          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden">
+            <div className="relative">
+              <video
+                ref={videoRef}
+                src={video.file_url}
+                onTimeUpdate={handleTimeUpdate}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                className="w-full aspect-video bg-black"
+              >
+                Seu navegador não suporta reprodução de vídeos.
+              </video>
+              
+              {/* Tap flash indicator */}
+              {showTapFlash && (
+                <div className="absolute inset-0 bg-success-400 opacity-50 animate-pulse pointer-events-none" />
               )}
+              
+              {/* Rhythm Display Overlay */}
+              <div className="absolute top-4 left-4 right-4">
+                {isRecording ? (
+                  <div className="bg-red-500 text-white px-6 py-3 rounded-2xl flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-3 h-3 bg-white rounded-full animate-pulse" />
+                      <span className="font-medium">GRAVANDO - Pressione ESPAÇO</span>
+                    </div>
+                    <div className="bg-white/20 px-3 py-1 rounded-full">
+                      {taps.length} batidas
+                    </div>
+                  </div>
+                ) : currentBar > 0 ? (
+                  <div className="bg-ritmo-gradient text-white px-6 py-3 rounded-2xl flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      <div className="text-center">
+                        <div className="text-sm opacity-90">Compasso</div>
+                        <div className="text-2xl font-bold">{currentBar}</div>
+                      </div>
+                      <div className="w-px h-8 bg-white/30" />
+                      <div className="text-center">
+                        <div className="text-sm opacity-90">Batida</div>
+                        <div className="text-2xl font-bold">{currentBeat}</div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-gray-800/80 text-white px-6 py-3 rounded-2xl">
+                    <span className="font-medium">Aguardando início do ritmo...</span>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
 
-          <div className="video-controls">
-            <button onClick={handlePlayPause} className="play-button">
-              {isPlaying ? '⏸️ Pausar' : '▶️ Reproduzir'}
-            </button>
-            <div className="time-display">
-              {formatTime(currentTime)} / {formatTime(video.duration)}
+            {/* Video Controls */}
+            <div className="p-6 bg-gray-50 flex items-center justify-between">
+              <button
+                onClick={handlePlayPause}
+                className="flex items-center space-x-2 px-6 py-3 bg-ritmo-gradient text-white rounded-full hover:shadow-lg transition-all duration-300 transform hover:scale-105"
+              >
+                {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                <span className="font-medium">{isPlaying ? 'Pausar' : 'Reproduzir'}</span>
+              </button>
+              
+              <div className="text-gray-600 font-medium">
+                {formatTime(currentTime)} / {formatTime(video.duration)}
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="settings-section">
-          <div className="settings-card">
-            <h2>Configuração de Ritmo</h2>
+        {/* Settings Section */}
+        <div className="space-y-6">
+          {/* Rhythm Configuration */}
+          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-6">
+            <div className="flex items-center space-x-2 mb-6">
+              <Music className="w-5 h-5 text-ritmo-600" />
+              <h2 className="text-xl font-bold text-gray-900">Configuração de Ritmo</h2>
+            </div>
             
             {/* Tap Tempo Recording */}
-            <div className="tap-tempo-section">
-              <h3>Gravar Batidas</h3>
-              <p className="tap-instructions">
+            <div className="space-y-4 mb-6">
+              <h3 className="font-semibold text-gray-900">Gravar Batidas</h3>
+              <p className="text-sm text-gray-600">
                 {isRecording 
                   ? `Pressione ESPAÇO no ritmo da música (${taps.length} batidas gravadas)`
                   : 'Clique para iniciar e pressione ESPAÇO seguindo o ritmo'}
               </p>
               
               {!isRecording ? (
-                <button onClick={startRecording} className="btn-record">
-                  🎵 Iniciar Gravação
+                <button 
+                  onClick={startRecording} 
+                  className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-creative-gradient text-white rounded-xl hover:shadow-lg transition-all duration-300 transform hover:scale-105"
+                >
+                  <Zap className="w-4 h-4" />
+                  <span className="font-medium">Iniciar Gravação</span>
                 </button>
               ) : (
-                <button onClick={stopRecording} className="btn-stop-record">
-                  ⏹️ Parar e Calcular BPM
+                <button 
+                  onClick={stopRecording} 
+                  className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors"
+                >
+                  <Pause className="w-4 h-4" />
+                  <span className="font-medium">Parar e Calcular BPM</span>
                 </button>
               )}
               
               {taps.length > 0 && !isRecording && (
-                <div className="taps-info">
-                  <p>Batidas gravadas: {taps.length}</p>
-                  <button onClick={() => setTaps([])} className="btn-clear">
-                    Limpar
+                <div className="bg-success-50 border border-success-200 rounded-xl p-4">
+                  <p className="text-sm text-success-800 mb-2">Batidas gravadas: {taps.length}</p>
+                  <button 
+                    onClick={() => setTaps([])} 
+                    className="flex items-center space-x-1 text-success-700 hover:text-success-800 text-sm"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Limpar</span>
                   </button>
                 </div>
               )}
             </div>
             
-            <div className="divider"></div>
-            
-            {/* Manual BPM Configuration */}
-            <h3>Configuração Manual</h3>
-            <div className="form-group">
-              <label>BPM (Batidas por Minuto)</label>
-              <input
-                type="number"
-                value={bpm}
-                onChange={(e) => setBpm(Number(e.target.value))}
-                min="1"
-                max="300"
-                disabled={isRecording}
-              />
-            </div>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label>Fórmula de Compasso</label>
-                <div className="time-signature">
+            <div className="border-t border-gray-200 pt-6">
+              <h3 className="font-semibold text-gray-900 mb-4">Configuração Manual</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    BPM (Batidas por Minuto)
+                  </label>
                   <input
                     type="number"
-                    value={timeSignatureNum}
-                    onChange={(e) => setTimeSignatureNum(Number(e.target.value))}
+                    value={bpm}
+                    onChange={(e) => setBpm(Number(e.target.value))}
                     min="1"
-                    max="16"
-                  />
-                  <span>/</span>
-                  <input
-                    type="number"
-                    value={timeSignatureDen}
-                    onChange={(e) => setTimeSignatureDen(Number(e.target.value))}
-                    min="1"
-                    max="16"
+                    max="300"
+                    disabled={isRecording}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ritmo-500 focus:border-ritmo-500 transition-colors disabled:bg-gray-50"
                   />
                 </div>
-              </div>
-            </div>
 
-            <div className="form-group">
-              <label>Início do Ritmo (segundos)</label>
-              <div className="input-with-button">
-                <input
-                  type="number"
-                  value={offsetStart}
-                  onChange={(e) => setOffsetStart(Number(e.target.value))}
-                  min="0"
-                  step="0.1"
-                />
-                <button onClick={setOffsetToCurrent} className="btn-small">
-                  Usar tempo atual
-                </button>
-              </div>
-            </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Fórmula de Compasso
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="number"
+                      value={timeSignatureNum}
+                      onChange={(e) => setTimeSignatureNum(Number(e.target.value))}
+                      min="1"
+                      max="16"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ritmo-500 focus:border-ritmo-500 transition-colors"
+                    />
+                    <span className="text-gray-500 font-medium">/</span>
+                    <input
+                      type="number"
+                      value={timeSignatureDen}
+                      onChange={(e) => setTimeSignatureDen(Number(e.target.value))}
+                      min="1"
+                      max="16"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ritmo-500 focus:border-ritmo-500 transition-colors"
+                    />
+                  </div>
+                </div>
 
-            <button onClick={saveRhythmGrid} className="btn-primary">
-              Salvar Configuração
-            </button>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Início do Ritmo (segundos)
+                  </label>
+                  <div className="flex space-x-2">
+                    <input
+                      type="number"
+                      value={offsetStart}
+                      onChange={(e) => setOffsetStart(Number(e.target.value))}
+                      min="0"
+                      step="0.1"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ritmo-500 focus:border-ritmo-500 transition-colors"
+                    />
+                    <button 
+                      onClick={setOffsetToCurrent} 
+                      className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors whitespace-nowrap"
+                    >
+                      Usar atual
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <button 
+                onClick={saveRhythmGrid} 
+                className="w-full mt-6 px-4 py-3 bg-ritmo-gradient text-white rounded-xl hover:shadow-lg transition-all duration-300 transform hover:scale-105 font-medium"
+              >
+                Salvar Configuração
+              </button>
+            </div>
           </div>
 
-          <div className="settings-card">
-            <h2>Exportar Vídeo</h2>
+          {/* Export Section */}
+          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-6">
+            <div className="flex items-center space-x-2 mb-6">
+              <Download className="w-5 h-5 text-energy-600" />
+              <h2 className="text-xl font-bold text-gray-900">Exportar Vídeo</h2>
+            </div>
             
-            <div className="form-group">
-              <label>Tempo Inicial (segundos)</label>
-              <div className="input-with-button">
-                <input
-                  type="number"
-                  value={startTime}
-                  onChange={(e) => setStartTime(Number(e.target.value))}
-                  min="0"
-                  step="0.1"
-                />
-                <button onClick={setStartTimeToCurrent} className="btn-small">
-                  Usar tempo atual
-                </button>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Tempo Inicial (segundos)
+                </label>
+                <div className="flex space-x-2">
+                  <input
+                    type="number"
+                    value={startTime}
+                    onChange={(e) => setStartTime(Number(e.target.value))}
+                    min="0"
+                    step="0.1"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ritmo-500 focus:border-ritmo-500 transition-colors"
+                  />
+                  <button 
+                    onClick={setStartTimeToCurrent} 
+                    className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors whitespace-nowrap"
+                  >
+                    Usar atual
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <div className="form-group">
-              <label>Tempo Final (segundos)</label>
-              <div className="input-with-button">
-                <input
-                  type="number"
-                  value={endTime || 0}
-                  onChange={(e) => setEndTime(Number(e.target.value))}
-                  min="0"
-                  step="0.1"
-                />
-                <button onClick={setEndTimeToCurrent} className="btn-small">
-                  Usar tempo atual
-                </button>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Tempo Final (segundos)
+                </label>
+                <div className="flex space-x-2">
+                  <input
+                    type="number"
+                    value={endTime || 0}
+                    onChange={(e) => setEndTime(Number(e.target.value))}
+                    min="0"
+                    step="0.1"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ritmo-500 focus:border-ritmo-500 transition-colors"
+                  />
+                  <button 
+                    onClick={setEndTimeToCurrent} 
+                    className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors whitespace-nowrap"
+                  >
+                    Usar atual
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <div className="export-info">
-              <p>Duração do corte: {formatTime((endTime || 0) - startTime)}</p>
-            </div>
+              <div className="bg-electric-50 border border-electric-200 rounded-xl p-4">
+                <div className="flex items-center space-x-2">
+                  <Timer className="w-4 h-4 text-electric-600" />
+                  <span className="text-sm font-medium text-electric-800">
+                    Duração do corte: {formatTime((endTime || 0) - startTime)}
+                  </span>
+                </div>
+              </div>
 
-            <button
-              onClick={exportVideo}
-              disabled={exporting}
-              className="btn-export"
-            >
-              {exporting ? 'Exportando...' : '📥 Exportar com Contador'}
-            </button>
+              <button
+                onClick={exportVideo}
+                disabled={exporting}
+                className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-energy-gradient text-white rounded-xl hover:shadow-lg transition-all duration-300 transform hover:scale-105 font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+              >
+                {exporting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Exportando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" />
+                    <span>Exportar com Contador</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>

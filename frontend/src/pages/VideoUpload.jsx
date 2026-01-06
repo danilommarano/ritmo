@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import './VideoUpload.css'
+import { Upload, Video, X, Check, AlertCircle, ArrowLeft, FileVideo } from 'lucide-react'
 
 function VideoUpload() {
   const navigate = useNavigate()
@@ -108,49 +108,98 @@ function VideoUpload() {
   }
 
   return (
-    <div className="video-upload">
-      <div className="upload-container">
-        <h1>Upload de Vídeo</h1>
+    <div className="max-w-4xl mx-auto px-6 py-12">
+      {/* Header */}
+      <div className="mb-8">
+        <button
+          onClick={() => navigate('/app')}
+          className="flex items-center space-x-2 text-gray-600 hover:text-ritmo-600 transition-colors mb-6"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Voltar para Biblioteca</span>
+        </button>
         
-        {error && (
-          <div className="error-message">
-            {error}
+        <h1 className="text-4xl font-bold text-gray-900 mb-2">
+          Upload de Vídeo
+        </h1>
+        <p className="text-xl text-gray-600">
+          Faça upload do seu vídeo para criar ritmos incríveis
+        </p>
+      </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-start space-x-3">
+          <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+          <div>
+            <h3 className="font-medium text-red-900">Erro no upload</h3>
+            <p className="text-red-700">{error}</p>
           </div>
-        )}
-        
-        <form onSubmit={handleSubmit} className="upload-form">
-          <div className="form-group">
-            <label htmlFor="file-input" className="file-label">
+        </div>
+      )}
+
+      {/* Upload Form */}
+      <div className="bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden">
+        <form onSubmit={handleSubmit} className="p-8 space-y-8">
+          {/* File Upload Area */}
+          <div>
+            <label htmlFor="file-input" className="block text-sm font-medium text-gray-700 mb-3">
+              Arquivo de Vídeo
+            </label>
+            <div className="relative">
+              <input
+                id="file-input"
+                type="file"
+                accept="video/*"
+                onChange={handleFileChange}
+                disabled={uploading}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+              />
+              
               {file ? (
-                <div className="file-selected">
-                  <span className="file-icon">📹</span>
-                  <div className="file-info">
-                    <div className="file-name">{file.name}</div>
-                    <div className="file-size">
-                      {(file.size / (1024 * 1024)).toFixed(2)} MB
-                    </div>
+                <div className="border-2 border-success-300 bg-success-50 rounded-2xl p-6 flex items-center space-x-4">
+                  <div className="w-12 h-12 bg-success-gradient rounded-xl flex items-center justify-center flex-shrink-0">
+                    <FileVideo className="w-6 h-6 text-white" />
                   </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium text-gray-900 truncate">{file.name}</h4>
+                    <p className="text-sm text-gray-600">
+                      {(file.size / (1024 * 1024)).toFixed(2)} MB
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFile(null)}
+                    disabled={uploading}
+                    className="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center transition-colors disabled:opacity-50"
+                  >
+                    <X className="w-4 h-4 text-gray-600" />
+                  </button>
                 </div>
               ) : (
-                <div className="file-placeholder">
-                  <span className="upload-icon">⬆️</span>
-                  <p>Clique para selecionar um vídeo</p>
-                  <p className="file-hint">MP4, AVI, MOV, MKV ou WEBM (máx. 500MB)</p>
+                <div className="border-2 border-dashed border-gray-300 hover:border-ritmo-400 rounded-2xl p-12 text-center transition-colors">
+                  <div className="w-16 h-16 bg-gradient-to-br from-ritmo-100 to-creative-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Upload className="w-8 h-8 text-ritmo-600" />
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">
+                    Clique para selecionar um vídeo
+                  </h3>
+                  <p className="text-gray-600 mb-1">
+                    ou arraste e solte aqui
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    MP4, AVI, MOV, MKV ou WEBM (máx. 500MB)
+                  </p>
                 </div>
               )}
-            </label>
-            <input
-              id="file-input"
-              type="file"
-              accept="video/*"
-              onChange={handleFileChange}
-              disabled={uploading}
-              className="file-input"
-            />
+            </div>
           </div>
-          
-          <div className="form-group">
-            <label htmlFor="title">Título</label>
+
+          {/* Title Input */}
+          <div>
+            <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-3">
+              Título *
+            </label>
             <input
               id="title"
               type="text"
@@ -159,11 +208,15 @@ function VideoUpload() {
               disabled={uploading}
               placeholder="Nome do vídeo"
               required
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-ritmo-500 focus:border-ritmo-500 transition-colors disabled:bg-gray-50 disabled:text-gray-500"
             />
           </div>
-          
-          <div className="form-group">
-            <label htmlFor="description">Descrição (opcional)</label>
+
+          {/* Description Input */}
+          <div>
+            <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-3">
+              Descrição (opcional)
+            </label>
             <textarea
               id="description"
               value={description}
@@ -171,40 +224,62 @@ function VideoUpload() {
               disabled={uploading}
               placeholder="Descreva o conteúdo do vídeo"
               rows={4}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-ritmo-500 focus:border-ritmo-500 transition-colors disabled:bg-gray-50 disabled:text-gray-500 resize-none"
             />
           </div>
-          
+
+          {/* Upload Progress */}
           {uploading && (
-            <div className="upload-progress">
-              <div className="progress-bar">
+            <div className="bg-gradient-to-r from-ritmo-50 to-creative-50 rounded-2xl p-6">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-medium text-gray-700">
+                  {uploadProgress < 100 ? 'Enviando vídeo...' : 'Processando vídeo...'}
+                </span>
+                <span className="text-sm font-medium text-ritmo-600">
+                  {uploadProgress}%
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
                 <div 
-                  className="progress-fill" 
+                  className="h-full bg-ritmo-gradient transition-all duration-300 ease-out"
                   style={{ width: `${uploadProgress}%` }}
                 />
               </div>
-              <p className="progress-text">
-                {uploadProgress < 100 
-                  ? `Enviando... ${uploadProgress}%` 
-                  : 'Processando vídeo...'}
-              </p>
+              {uploadProgress >= 100 && (
+                <p className="text-sm text-gray-600 mt-2 flex items-center">
+                  <Check className="w-4 h-4 text-success-600 mr-1" />
+                  Upload concluído! Processando metadados...
+                </p>
+              )}
             </div>
           )}
-          
-          <div className="form-actions">
+
+          {/* Form Actions */}
+          <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t border-gray-100">
             <button
               type="button"
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/app')}
               disabled={uploading}
-              className="btn-secondary"
+              className="flex-1 px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-full hover:bg-gray-50 transition-all duration-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              disabled={uploading || !file}
-              className="btn-primary"
+              disabled={uploading || !file || !title.trim()}
+              className="flex-1 px-6 py-3 bg-ritmo-gradient text-white rounded-full hover:shadow-lg transition-all duration-300 transform hover:scale-105 font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:hover:shadow-none flex items-center justify-center space-x-2"
             >
-              {uploading ? 'Enviando...' : 'Fazer Upload'}
+              {uploading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Enviando...</span>
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4" />
+                  <span>Fazer Upload</span>
+                </>
+              )}
             </button>
           </div>
         </form>
