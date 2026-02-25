@@ -1,12 +1,15 @@
 FROM python:3.11-slim
 
-# Install system dependencies including FFmpeg
+# Install system dependencies including FFmpeg and fonts for emoji support
 RUN apt-get update && apt-get install -y \
     postgresql-client \
     ffmpeg \
     libpq-dev \
     gcc \
-    && rm -rf /var/lib/apt/lists/*
+    fonts-noto-color-emoji \
+    fontconfig \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -f -v
 
 WORKDIR /app
 

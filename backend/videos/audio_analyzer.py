@@ -1,8 +1,15 @@
-"""
-Audio analysis utilities for beat detection and BPM estimation.
+"""Audio analysis utilities for beat detection and BPM estimation.
 
 This module extracts audio from video files and analyzes it to detect
-beats and estimate BPM using librosa.
+beats and estimate BPM using advanced multi-technique algorithms
+optimized for low-quality audio from dance videos.
+
+Key techniques:
+- Multi-band onset detection (bass, mid, treble)
+- Tempogram with autocorrelation for robust BPM estimation
+- PLP (Predominant Local Pulse) for beat tracking
+- Multi-candidate BPM validation
+- Harmonic-Percussive Source Separation (HPSS)
 """
 import os
 import tempfile
@@ -10,7 +17,8 @@ import subprocess
 import numpy as np
 import librosa
 import librosa.display
-from scipy.signal import butter, sosfiltfilt
+from scipy.signal import butter, sosfiltfilt, medfilt
+from scipy.ndimage import uniform_filter1d
 
 
 def extract_audio_from_video(video_path, output_path=None):
@@ -56,12 +64,402 @@ def extract_audio_from_video(video_path, output_path=None):
         raise Exception(f'Failed to extract audio: {e.stderr.decode()}')
 
 
+# =============================================================================
+# ROBUST BPM DETECTION - Multi-technique approach for low-quality audio
+# =============================================================================
+
+def preprocess_audio(y, sr):
+    """
+    Preprocess audio for better beat detection in low-quality recordings.
+    
+    Applies:
+    - DC offset removal
+    - Normalization
+    - Dynamic range compression (soft limiting)
+    - High-pass filter to remove rumble
+    """
+    # Remove DC offset
+    y = y - np.mean(y)
+    
+    # Normalize
+    y = librosa.util.normalize(y)
+    
+    # Soft dynamic range compression to bring up quiet parts
+    # This helps with recordings where the beat might be buried
+    threshold = 0.3
+    ratio = 0.5
+    above_threshold = np.abs(y) > threshold
+    y_compressed = y.copy()
+    y_compressed[above_threshold] = np.sign(y[above_threshold]) * (
+        threshold + (np.abs(y[above_threshold]) - threshold) * ratio
+    )
+    y = librosa.util.normalize(y_compressed)
+    
+    # High-pass filter to remove low rumble (below 20Hz)
+    nyq = sr / 2
+    low_cutoff = 20 / nyq
+    if low_cutoff < 1:
+        sos = butter(2, low_cutoff, btype='high', output='sos')
+        y = sosfiltfilt(sos, y)
+    
+    return y
+
+
+def compute_multiband_onset(y, sr, hop_length=512):
+    """
+    Compute onset envelope from multiple frequency bands.
+    
+    Splits audio into bass, mid, and treble bands and computes
+    onset strength for each. Combines them with weights that
+    emphasize rhythmic content.
+    
+    Returns:
+        tuple: (combined_onset, onset_bass, onset_mid, onset_treble)
+    """
+    # Separate harmonic and percussive components
+    y_harm, y_perc = librosa.effects.hpss(y)
+    
+    # Use percussive component for better beat detection
+    y_use = y_perc
+    
+    # Band 1: Bass (30-200 Hz) - kick drum, bass
+    y_bass = bandpass_filter(y_use, sr, low=30, high=200, order=4)
+    onset_bass = librosa.onset.onset_strength(
+        y=y_bass, sr=sr, hop_length=hop_length,
+        n_fft=2048, n_mels=32, fmin=30, fmax=200
+    )
+    
+    # Band 2: Mid (200-2000 Hz) - snare, claps, most instruments
+    y_mid = bandpass_filter(y_use, sr, low=200, high=2000, order=4)
+    onset_mid = librosa.onset.onset_strength(
+        y=y_mid, sr=sr, hop_length=hop_length,
+        n_fft=2048, n_mels=64, fmin=200, fmax=2000
+    )
+    
+    # Band 3: Treble (2000-8000 Hz) - hi-hats, cymbals, triangle
+    y_treble = bandpass_filter(y_use, sr, low=2000, high=min(8000, sr//2 - 100), order=4)
+    onset_treble = librosa.onset.onset_strength(
+        y=y_treble, sr=sr, hop_length=hop_length,
+        n_fft=2048, n_mels=32, fmin=2000, fmax=8000
+    )
+    
+    # Also compute onset from full percussive signal
+    onset_full = librosa.onset.onset_strength(
+        y=y_perc, sr=sr, hop_length=hop_length,
+        n_fft=2048, n_mels=128
+    )
+    
+    # Normalize each band
+    onset_bass = librosa.util.normalize(onset_bass)
+    onset_mid = librosa.util.normalize(onset_mid)
+    onset_treble = librosa.util.normalize(onset_treble)
+    onset_full = librosa.util.normalize(onset_full)
+    
+    # Combine with weights emphasizing bass (most reliable for beat)
+    # Bass typically has the kick drum which marks the beat
+    combined = (
+        1.0 * onset_bass +      # Bass - primary beat source
+        0.6 * onset_mid +       # Mid - snare/claps
+        0.3 * onset_treble +    # Treble - hi-hats (subdivisions)
+        0.5 * onset_full        # Full - overall energy
+    )
+    combined = librosa.util.normalize(combined)
+    
+    return combined, onset_bass, onset_mid, onset_treble
+
+
+def estimate_bpm_robust(y, sr, hop_length=512, onset_env=None):
+    """
+    Estimate BPM using multiple techniques and vote on the best.
+    
+    Techniques used:
+    1. Tempogram with autocorrelation
+    2. Librosa beat_track with different parameters
+    3. Peak analysis of onset envelope
+    
+    Returns:
+        tuple: (best_bpm, confidence, all_candidates)
+    """
+    if onset_env is None:
+        onset_env, _, _, _ = compute_multiband_onset(y, sr, hop_length)
+    
+    candidates = []
+    
+    # Technique 1: Tempogram-based estimation
+    # More robust to noise than simple beat tracking
+    try:
+        tempogram = librosa.feature.tempogram(
+            onset_envelope=onset_env, sr=sr, hop_length=hop_length,
+            win_length=400  # About 9 seconds window for stability
+        )
+        
+        # Get tempo from tempogram using autocorrelation
+        tempo_ac = librosa.feature.tempo(
+            onset_envelope=onset_env, sr=sr, hop_length=hop_length,
+            aggregate=None  # Get tempo for each frame
+        )
+        
+        # Use median of tempo estimates (robust to outliers)
+        if len(tempo_ac) > 0:
+            median_tempo = float(np.median(tempo_ac))
+            # Calculate stability as inverse of variance
+            tempo_std = np.std(tempo_ac)
+            stability = 1.0 / (1.0 + tempo_std / 10)
+            candidates.append((median_tempo, stability * 0.9, 'tempogram_median'))
+            
+            # Also try mode (most common tempo)
+            tempo_rounded = np.round(tempo_ac / 2) * 2  # Round to nearest 2 BPM
+            unique, counts = np.unique(tempo_rounded, return_counts=True)
+            mode_tempo = unique[np.argmax(counts)]
+            mode_confidence = np.max(counts) / len(tempo_ac)
+            candidates.append((float(mode_tempo), mode_confidence * 0.85, 'tempogram_mode'))
+    except Exception:
+        pass
+    
+    # Technique 2: Standard beat tracking with multiple start_bpm
+    for start_bpm in [90, 120, 140]:
+        try:
+            tempo, _ = librosa.beat.beat_track(
+                onset_envelope=onset_env, sr=sr, hop_length=hop_length,
+                start_bpm=start_bpm, tightness=100
+            )
+            # Score based on how well tempo aligns with onset peaks
+            score = score_tempo_alignment(onset_env, sr, tempo, hop_length)
+            candidates.append((float(tempo), score * 0.8, f'beat_track_{start_bpm}'))
+        except Exception:
+            pass
+    
+    # Technique 3: Autocorrelation of onset envelope
+    try:
+        # Compute autocorrelation
+        onset_ac = np.correlate(onset_env, onset_env, mode='full')
+        onset_ac = onset_ac[len(onset_ac)//2:]  # Take positive lags only
+        
+        # Find peaks in autocorrelation
+        # These correspond to periodic patterns in the audio
+        frame_rate = sr / hop_length
+        
+        # Search for BPM in range 60-200
+        min_lag = int(frame_rate * 60 / 200)  # Max 200 BPM
+        max_lag = int(frame_rate * 60 / 60)   # Min 60 BPM
+        
+        if max_lag < len(onset_ac) and min_lag < max_lag:
+            ac_search = onset_ac[min_lag:max_lag]
+            if len(ac_search) > 0:
+                peak_lag = np.argmax(ac_search) + min_lag
+                ac_bpm = frame_rate * 60 / peak_lag
+                # Confidence based on peak prominence
+                peak_val = onset_ac[peak_lag]
+                baseline = np.median(onset_ac[min_lag:max_lag])
+                prominence = (peak_val - baseline) / (peak_val + 1e-6)
+                candidates.append((float(ac_bpm), prominence * 0.7, 'autocorrelation'))
+    except Exception:
+        pass
+    
+    if not candidates:
+        # Fallback to basic beat tracking
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+        return float(tempo), 0.5, [(float(tempo), 0.5, 'fallback')]
+    
+    # Vote on best BPM
+    # Group candidates that are similar (within 5%)
+    best_bpm, confidence = vote_best_bpm(candidates)
+    
+    return best_bpm, confidence, candidates
+
+
+def score_tempo_alignment(onset_env, sr, bpm, hop_length):
+    """
+    Score how well a tempo aligns with onset envelope peaks.
+    
+    Places a beat grid at the given BPM and measures how much
+    onset energy falls on the beat positions.
+    """
+    frame_rate = sr / hop_length
+    period_frames = frame_rate * 60 / bpm
+    
+    total_frames = len(onset_env)
+    
+    # Try multiple phase offsets and take best
+    best_score = 0
+    n_offsets = int(period_frames)
+    
+    for offset in range(0, n_offsets, max(1, n_offsets // 20)):
+        beat_frames = []
+        t = offset
+        while t < total_frames:
+            beat_frames.append(int(round(t)))
+            t += period_frames
+        
+        if len(beat_frames) > 4:
+            # Score: average onset strength at beat positions
+            beat_frames = np.array(beat_frames)
+            beat_frames = beat_frames[beat_frames < len(onset_env)]
+            score = np.mean(onset_env[beat_frames])
+            best_score = max(best_score, score)
+    
+    return best_score
+
+
+def vote_best_bpm(candidates):
+    """
+    Vote on the best BPM from multiple candidates.
+    
+    Groups similar BPMs and chooses the group with highest
+    cumulative confidence.
+    """
+    if not candidates:
+        return 120.0, 0.0
+    
+    # Sort by confidence
+    candidates = sorted(candidates, key=lambda x: x[1], reverse=True)
+    
+    # Group similar BPMs (within 3%)
+    groups = []
+    for bpm, conf, method in candidates:
+        found_group = False
+        for group in groups:
+            group_bpm = group[0][0]
+            # Check if within 3% or is a 2x/0.5x multiple
+            if abs(bpm - group_bpm) / group_bpm < 0.03:
+                group.append((bpm, conf, method))
+                found_group = True
+                break
+            # Check for octave errors (2x or 0.5x tempo)
+            elif abs(bpm * 2 - group_bpm) / group_bpm < 0.03:
+                # This candidate is half the tempo - add adjusted
+                group.append((bpm * 2, conf * 0.8, method + '_2x'))
+                found_group = True
+                break
+            elif abs(bpm / 2 - group_bpm) / group_bpm < 0.03:
+                # This candidate is double the tempo - add adjusted
+                group.append((bpm / 2, conf * 0.8, method + '_half'))
+                found_group = True
+                break
+        
+        if not found_group:
+            groups.append([(bpm, conf, method)])
+    
+    # Find group with highest cumulative confidence
+    best_group = max(groups, key=lambda g: sum(c[1] for c in g))
+    
+    # Use weighted average of BPMs in best group
+    total_weight = sum(c[1] for c in best_group)
+    if total_weight > 0:
+        best_bpm = sum(c[0] * c[1] for c in best_group) / total_weight
+        confidence = min(1.0, total_weight / len(candidates))
+    else:
+        best_bpm = best_group[0][0]
+        confidence = 0.5
+    
+    return best_bpm, confidence
+
+
+def detect_beats_plp(onset_env, sr, hop_length=512, bpm_hint=None):
+    """
+    Detect beats using PLP (Predominant Local Pulse).
+    
+    PLP is more robust than simple beat tracking because it
+    follows the local pulse and can handle tempo variations.
+    
+    Args:
+        onset_env: Onset envelope
+        sr: Sample rate
+        hop_length: Hop length
+        bpm_hint: Optional BPM hint to guide detection
+        
+    Returns:
+        numpy array of beat times in seconds
+    """
+    # Compute PLP (predominant local pulse)
+    pulse = librosa.beat.plp(
+        onset_envelope=onset_env, sr=sr, hop_length=hop_length
+    )
+    
+    # Peak picking to find beats
+    # Adjust parameters based on expected BPM
+    if bpm_hint:
+        # Expected interval between beats in frames
+        expected_interval = (sr / hop_length) * 60 / bpm_hint
+        wait = max(3, int(expected_interval * 0.4))  # Min 40% of beat interval
+    else:
+        wait = 4
+    
+    peaks = librosa.util.peak_pick(
+        pulse,
+        pre_max=3, post_max=3,
+        pre_avg=4, post_avg=4,
+        delta=0.02,
+        wait=wait
+    )
+    
+    beat_times = librosa.frames_to_time(peaks, sr=sr, hop_length=hop_length)
+    
+    # Remove beats that are too close together (likely noise)
+    if len(beat_times) >= 2:
+        ibi = np.diff(beat_times)
+        if len(ibi) > 0:
+            median_ibi = np.median(ibi)
+            # Keep beats that are at least 35% of median interval apart
+            keep = [True]
+            for d in ibi:
+                # Min 180ms between beats (max ~333 BPM) or 35% of median
+                keep.append(d > max(0.18, 0.35 * median_ibi))
+            beat_times = beat_times[np.array(keep, dtype=bool)]
+    
+    return beat_times
+
+
+def refine_beat_times(beat_times, onset_env, sr, hop_length, bpm):
+    """
+    Refine beat times by snapping them to nearby onset peaks.
+    
+    This helps align beats more precisely with the actual
+    musical events.
+    """
+    if len(beat_times) < 2:
+        return beat_times
+    
+    frame_rate = sr / hop_length
+    refined = []
+    
+    # Search window: +/- 10% of beat interval
+    period_sec = 60.0 / bpm
+    window_sec = period_sec * 0.1
+    window_frames = int(window_sec * frame_rate)
+    
+    for t in beat_times:
+        frame = int(t * frame_rate)
+        
+        # Search window around expected beat
+        start = max(0, frame - window_frames)
+        end = min(len(onset_env) - 1, frame + window_frames)
+        
+        if start < end:
+            # Find peak in window
+            window = onset_env[start:end+1]
+            peak_offset = np.argmax(window)
+            refined_frame = start + peak_offset
+            refined_time = refined_frame / frame_rate
+            refined.append(refined_time)
+        else:
+            refined.append(t)
+    
+    return np.array(refined)
+
+
 def detect_beats_and_bpm(audio_path, video_duration=None):
     """
     Detect beats and estimate BPM from audio file.
     
-    Uses librosa's beat tracking algorithm which analyzes the onset strength
-    envelope to find rhythmic patterns.
+    Uses a robust multi-technique approach optimized for
+    low-quality audio from dance videos:
+    
+    1. Audio preprocessing (normalization, compression)
+    2. Multi-band onset detection
+    3. BPM estimation via tempogram + voting
+    4. Beat detection via PLP
+    5. Beat refinement by snapping to onsets
     
     Args:
         audio_path: Path to the audio file
@@ -77,39 +475,53 @@ def detect_beats_and_bpm(audio_path, video_duration=None):
         # Load audio file
         print(f"Loading audio from {audio_path}...")
         y, sr = librosa.load(audio_path, sr=22050, mono=True)
+        hop_length = 512
         
         print(f"Audio loaded: duration={len(y)/sr:.2f}s, sample_rate={sr}")
         
-        # Detect tempo and beats
-        # onset_envelope: measure of note onsets (sudden increases in energy)
-        # aggregate: use median for more robust tempo estimation
-        print("Detecting tempo and beats...")
-        tempo, beat_frames = librosa.beat.beat_track(
-            y=y,
-            sr=sr,
-            units='frames',
-            start_bpm=120.0,  # Initial guess
-            tightness=100  # How closely to follow the tempo (higher = stricter)
+        # Step 1: Preprocess audio for better detection
+        print("Preprocessing audio...")
+        y = preprocess_audio(y, sr)
+        
+        # Step 2: Compute multi-band onset envelope
+        print("Computing multi-band onset envelope...")
+        onset_env, onset_bass, onset_mid, onset_treble = compute_multiband_onset(
+            y, sr, hop_length
         )
         
-        # Convert beat frames to timestamps
-        beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+        # Step 3: Estimate BPM using multiple techniques
+        print("Estimating BPM with robust multi-technique approach...")
+        bpm, bpm_confidence, candidates = estimate_bpm_robust(
+            y, sr, hop_length, onset_env
+        )
+        print(f"BPM candidates: {[(round(c[0], 1), c[2]) for c in candidates[:5]]}")
+        print(f"Selected BPM: {bpm:.2f} (confidence: {bpm_confidence:.2f})")
         
-        print(f"Detected tempo: {tempo:.2f} BPM")
+        # Step 4: Detect beats using PLP
+        print("Detecting beats with PLP...")
+        beat_times = detect_beats_plp(onset_env, sr, hop_length, bpm_hint=bpm)
+        
+        # Step 5: Refine beat times
+        print("Refining beat positions...")
+        beat_times = refine_beat_times(beat_times, onset_env, sr, hop_length, bpm)
+        
         print(f"Detected {len(beat_times)} beats")
         
-        # Calculate confidence based on beat consistency
-        confidence = calculate_beat_confidence(beat_times, tempo)
+        # Calculate overall confidence
+        beat_confidence = calculate_beat_confidence(beat_times, bpm)
+        overall_confidence = (bpm_confidence + beat_confidence) / 2
         
         # Filter beats if video_duration is provided
         if video_duration:
-            beat_times = [t for t in beat_times if t <= video_duration]
+            beat_times = beat_times[beat_times <= video_duration]
         
         return {
-            'bpm': float(tempo),
+            'bpm': float(bpm),
             'beat_timestamps': beat_times.tolist(),
-            'confidence': confidence,
-            'total_beats': len(beat_times)
+            'confidence': overall_confidence,
+            'total_beats': len(beat_times),
+            'bpm_confidence': bpm_confidence,
+            'beat_confidence': beat_confidence
         }
         
     except Exception as e:
@@ -356,15 +768,80 @@ def find_best_downbeat_offset(onset_env, sr, bpm, beats_per_bar=4, hop_length=51
     return downbeat_time, beat_times
 
 
+def estimate_downbeat_offset(beat_times, onset_env, sr, hop_length, beats_per_bar=4, analyze_first_seconds=30):
+    """
+    Estimate which beat in the sequence is the downbeat (beat 1).
+    
+    Analyzes onset strength patterns to find where measures start.
+    In most music, downbeats (beat 1) tend to be stronger/more emphasized.
+    
+    Args:
+        beat_times: Array of beat timestamps
+        onset_env: Onset envelope
+        sr: Sample rate
+        hop_length: Hop length
+        beats_per_bar: Beats per measure
+        analyze_first_seconds: How many seconds to analyze
+        
+    Returns:
+        int: Offset index (0 to beats_per_bar-1) indicating which beat is "1"
+    """
+    if len(beat_times) < beats_per_bar * 6:
+        return 0
+    
+    frame_rate = sr / hop_length
+    
+    # Only analyze first N seconds for efficiency
+    cutoff_time = analyze_first_seconds
+    analysis_beats = beat_times[beat_times < cutoff_time]
+    
+    if len(analysis_beats) < beats_per_bar * 4:
+        analysis_beats = beat_times[:beats_per_bar * 8]
+    
+    best_offset = 0
+    best_score = -np.inf
+    
+    for offset in range(beats_per_bar):
+        # Get downbeats for this offset
+        downbeat_indices = list(range(offset, len(analysis_beats), beats_per_bar))
+        if len(downbeat_indices) < 3:
+            continue
+        
+        downbeat_times = analysis_beats[downbeat_indices]
+        
+        # Convert to frames and get onset values
+        downbeat_frames = (downbeat_times * frame_rate).astype(int)
+        downbeat_frames = downbeat_frames[
+            (downbeat_frames >= 0) & (downbeat_frames < len(onset_env))
+        ]
+        
+        if len(downbeat_frames) == 0:
+            continue
+        
+        # Score: average onset strength at downbeat positions
+        # Weight earlier downbeats more (music usually starts clearer)
+        weights = np.exp(-np.arange(len(downbeat_frames)) * 0.1)
+        onset_vals = onset_env[downbeat_frames]
+        score = np.sum(onset_vals * weights) / np.sum(weights)
+        
+        if score > best_score:
+            best_score = score
+            best_offset = offset
+    
+    return best_offset
+
+
 def analyze_video_with_downbeat(video_path, bpm=None, beats_per_bar=4, search_seconds=25):
     """
     Complete audio analysis with downbeat detection.
     
-    This function:
-    1. Extracts audio from video
-    2. Detects BPM if not provided
-    3. Finds the first downbeat (strong beat)
-    4. Returns timing information for counter overlay
+    This function uses robust multi-technique beat detection:
+    1. Extracts and preprocesses audio
+    2. Computes multi-band onset envelope
+    3. Detects BPM via tempogram + voting (if not provided)
+    4. Detects beats via PLP
+    5. Finds the first downbeat (strong beat)
+    6. Returns timing information for counter overlay
     
     Args:
         video_path: Path to the video file
@@ -378,6 +855,7 @@ def analyze_video_with_downbeat(video_path, bpm=None, beats_per_bar=4, search_se
             - offset_start: Time of first downbeat in seconds
             - beat_timestamps: List of all beat times
             - beats_per_bar: Beats per bar used
+            - confidence: Detection confidence
     """
     audio_path = None
     
@@ -387,33 +865,92 @@ def analyze_video_with_downbeat(video_path, bpm=None, beats_per_bar=4, search_se
         audio_path = extract_audio_from_video(video_path)
         
         # Load audio
+        print("Loading and preprocessing audio...")
         y, sr = librosa.load(audio_path, sr=22050, mono=True)
         hop_length = 512
         
-        # Auto-detect BPM if not provided
-        if bpm is None:
-            print("Auto-detecting BPM...")
-            tempo, _ = librosa.beat.beat_track(
-                y=y, sr=sr, units='frames', start_bpm=120.0, tightness=100
-            )
-            bpm = float(tempo)
-            print(f"Detected BPM: {bpm:.2f}")
+        # Preprocess for better detection
+        y = preprocess_audio(y, sr)
         
-        # Compute onset envelope optimized for forró/brazilian music
-        print("Computing onset envelope...")
-        onset_env = compute_onset_env_forro(y, sr, hop_length=hop_length)
+        # Compute multi-band onset envelope
+        print("Computing multi-band onset envelope...")
+        onset_env, onset_bass, _, _ = compute_multiband_onset(y, sr, hop_length)
         
-        # Find best downbeat offset
-        print("Finding first downbeat...")
-        downbeat_time, beat_times = find_best_downbeat_offset(
-            onset_env, sr, bpm,
-            beats_per_bar=beats_per_bar,
-            hop_length=hop_length,
-            search_seconds=search_seconds
+        # Also compute forró-optimized onset (emphasizes zabumba)
+        onset_forro = compute_onset_env_forro(y, sr, hop_length)
+        
+        # Combine both for best results
+        onset_combined = librosa.util.normalize(
+            0.6 * onset_env + 0.4 * onset_forro
         )
+        
+        # Auto-detect BPM if not provided
+        bpm_confidence = 1.0
+        if bpm is None:
+            print("Auto-detecting BPM with robust multi-technique approach...")
+            bpm, bpm_confidence, candidates = estimate_bpm_robust(
+                y, sr, hop_length, onset_combined
+            )
+            print(f"Detected BPM: {bpm:.2f} (confidence: {bpm_confidence:.2f})")
+            if candidates:
+                print(f"Top candidates: {[(round(c[0], 1), c[2]) for c in candidates[:3]]}")
+        
+        # Detect beats using PLP
+        print("Detecting beats with PLP...")
+        beat_times = detect_beats_plp(onset_combined, sr, hop_length, bpm_hint=bpm)
+        
+        # Refine beat times
+        beat_times = refine_beat_times(beat_times, onset_combined, sr, hop_length, bpm)
+        
+        if len(beat_times) < beats_per_bar * 3:
+            # Fallback: generate beats from BPM
+            print("Few beats detected, using BPM-based grid...")
+            duration = len(y) / sr
+            period = 60.0 / bpm
+            beat_times = np.arange(0, duration, period)
+        
+        # Find downbeat offset
+        print("Finding first downbeat...")
+        offset_idx = estimate_downbeat_offset(
+            beat_times, onset_combined, sr, hop_length,
+            beats_per_bar=beats_per_bar,
+            analyze_first_seconds=search_seconds
+        )
+        
+        # Get first downbeat time
+        if offset_idx < len(beat_times):
+            downbeat_time = float(beat_times[offset_idx])
+        else:
+            downbeat_time = float(beat_times[0]) if len(beat_times) > 0 else 0.0
+        
+        # Recompute beat grid starting from downbeat
+        # This ensures beats are properly aligned
+        duration = len(y) / sr
+        period = 60.0 / bpm
+        
+        # Generate aligned beat times
+        aligned_beats = []
+        t = downbeat_time
+        while t < duration:
+            aligned_beats.append(t)
+            t += period
+        
+        # Also go backwards if downbeat isn't at start
+        t = downbeat_time - period
+        while t >= 0:
+            aligned_beats.insert(0, t)
+            t -= period
+        
+        beat_times = np.array(aligned_beats)
+        beat_times = beat_times[beat_times >= 0]
+        
+        # Calculate beat confidence
+        beat_confidence = calculate_beat_confidence(beat_times, bpm)
+        overall_confidence = (bpm_confidence + beat_confidence) / 2
         
         print(f"First downbeat at: {downbeat_time:.3f}s")
         print(f"Total beats: {len(beat_times)}")
+        print(f"Overall confidence: {overall_confidence:.2f}")
         
         return {
             'bpm': float(bpm),
@@ -421,7 +958,10 @@ def analyze_video_with_downbeat(video_path, bpm=None, beats_per_bar=4, search_se
             'beat_timestamps': beat_times.tolist(),
             'beats_per_bar': beats_per_bar,
             'time_signature_numerator': beats_per_bar,
-            'time_signature_denominator': 4
+            'time_signature_denominator': 4,
+            'confidence': overall_confidence,
+            'bpm_confidence': bpm_confidence,
+            'beat_confidence': beat_confidence
         }
         
     finally:

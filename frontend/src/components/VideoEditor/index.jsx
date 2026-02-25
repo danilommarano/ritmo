@@ -979,6 +979,19 @@ function VideoEditor() {
         speed: seg.speed
       }))
       
+      // Get the video element's actual displayed size for proper scaling
+      // This is crucial for matching font sizes between preview and export
+      const videoElement = videoRef.current
+      let previewWidth = 360  // Default fallback
+      let previewHeight = 640
+      
+      if (videoElement) {
+        // Get the actual rendered size of the video element
+        const rect = videoElement.getBoundingClientRect()
+        previewWidth = rect.width
+        previewHeight = rect.height
+      }
+      
       const response = await fetch(`/api/videos/videos/${video.id}/export_with_elements/`, {
         method: 'POST',
         headers: {
@@ -993,7 +1006,10 @@ function VideoEditor() {
             bpm: bpmConfig.bpm,
             timeSignatureNum: bpmConfig.timeSignatureNum,
             offsetStart: bpmConfig.offsetStart
-          }
+          },
+          // Send preview dimensions for proper scale calculation
+          preview_width: previewWidth,
+          preview_height: previewHeight
         }),
       })
       

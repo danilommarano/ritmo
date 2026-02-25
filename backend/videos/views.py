@@ -438,6 +438,11 @@ class VideoViewSet(viewsets.ModelViewSet):
         # Get video segments for cutting/duplicating
         video_segments = request.data.get('video_segments', None)
         
+        # Get preview dimensions from frontend for proper scale calculation
+        # This ensures elements appear the same size relative to video in export as in preview
+        preview_width = request.data.get('preview_width')
+        preview_height = request.data.get('preview_height')
+        
         try:
             # Get video metadata
             video_metadata = {
@@ -454,7 +459,9 @@ class VideoViewSet(viewsets.ModelViewSet):
                 end_time=end_time,
                 video_metadata=video_metadata,
                 bpm_config=bpm_config,
-                video_segments=video_segments
+                video_segments=video_segments,
+                preview_width=preview_width,
+                preview_height=preview_height
             )
             
             # Return the file
