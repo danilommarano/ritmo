@@ -1,0 +1,50 @@
+# ============================================================================
+# Ritmo Backend — Dockerfile PRODUÇÃO (multi-stage)
+# ============================================================================
+# Stage 1: instala dependências Python (compilação)
+# Stage 2: imagem final leve com FFmpeg, fonts e código
+# ============================================================================
+
+# ── Stage 1: builder ───────────────────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
+    && pip install --no-cache-dir --prefix=/install gunicorn==21.2.0
+
+# ── Stage 2: produção ─────────────────────────────────────────────────────
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-client \
+    ffmpeg \
+    libpq-dev \
+    fonts-noto-color-emoji \
+    fontconfig \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -f -v
+
+COPY --from=builder /install /usr/local
+
+RUN useradd --create-home --shell /bin/bash ritmo
+WORKDIR /app
+COPY --chown=ritmo:ritmo . .
+
+RUN mkdir -p /app/media/videos /app/media/thumbnails /app/static \
+    && chown -R ritmo:ritmo /app/media /app/static \
+    && python manage.py collectstatic --noinput 2>/dev/null || true
+
+USER ritmo
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -sf http://localhost:8000/api/schema/ || exit 1
+
+CMD ["gunicorn", "ritmo.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4", "--timeout", "300"]

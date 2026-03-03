@@ -1,0 +1,37 @@
+# ============================================================================
+# Ritmo Frontend — Dockerfile PRODUÇÃO (multi-stage)
+# ============================================================================
+# Stage 1: build React/Vite → dist/
+# Stage 2: Nginx serve os arquivos estáticos
+#
+# Em produção, o docker-compose.prod.yml monta nginx.prod.conf por cima
+# do conf default, então a porta 443 (HTTPS) é servida pelo Nginx externo.
+# ============================================================================
+
+# ── Stage 1: build ─────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY . .
+
+ARG VITE_API_URL
+ENV VITE_API_URL=${VITE_API_URL:-}
+
+RUN npm run build
+
+# ── Stage 2: Nginx serve static ────────────────────────────────────────────
+FROM nginx:1.25-alpine
+
+RUN rm -rf /etc/nginx/conf.d/*
+
+COPY --from=builder /app/dist /var/www/frontend/
+
+EXPOSE 80 443
+
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
+    CMD wget -qO- http://localhost/health || exit 1
+
+CMD ["nginx", "-g", "daemon off;"]

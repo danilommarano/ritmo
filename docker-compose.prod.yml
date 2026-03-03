@@ -1,17 +1,58 @@
-version: '3.8'
+# ============================================================================
+# Ritmo — Docker Compose PRODUÇÃO
+# ============================================================================
+# Uso:
+#   1. cp .env.example .env  (preencha todas as variáveis)
+#   2. Coloque certificados SSL em ./nginx/ssl/ (fullchain.pem + privkey.pem)
+#   3. docker compose -f docker-compose.prod.yml up -d --build
+#
+# Opcional (Celery Beat para tarefas agendadas):
+#   docker compose -f docker-compose.prod.yml --profile beat up -d
+#
+# Certbot (renovar certificados):
+#   docker compose -f docker-compose.prod.yml --profile certbot run certbot
+# ============================================================================
+
+# Variáveis reutilizáveis
+x-backend-env: &backend-env
+  DEBUG: "False"
+  SECRET_KEY: ${SECRET_KEY}
+  DB_NAME: ${POSTGRES_DB:-ritmo_db}
+  DB_USER: ${POSTGRES_USER:-ritmo_user}
+  DB_PASSWORD: ${POSTGRES_PASSWORD}
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
+  CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+  CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/0
+  USE_ASYNC_EXPORT: "true"
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+  EMAIL_HOST: ${EMAIL_HOST:-}
+  EMAIL_PORT: ${EMAIL_PORT:-587}
+  EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+  EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+  DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Ritmo <noreply@ritmo.app>}
+
+x-backend-depends: &backend-depends
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
 
 services:
+  # ── Banco de dados ────────────────────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
     container_name: ritmo_postgres_prod
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-ritmo_db}
       POSTGRES_USER: ${POSTGRES_USER:-ritmo_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ritmo_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data_prod:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ritmo_user} -d ${POSTGRES_DB:-ritmo_db}"]
       interval: 10s
@@ -21,87 +62,137 @@ services:
     networks:
       - ritmo_network
 
+  # ── Redis (broker Celery + cache, com senha) ──────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ritmo_redis_prod
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data_prod:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - ritmo_network
+
+  # ── Backend Django (Gunicorn) ─────────────────────────────────────────────
   backend:
+    image: ${BACKEND_IMAGE:-ritmo-backend:latest}
     build:
       context: ./backend
       dockerfile: Dockerfile.prod
     container_name: ritmo_backend_prod
-    command: gunicorn ritmo.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120
+    command: >
+      gunicorn ritmo.wsgi:application
+      --bind 0.0.0.0:8000
+      --workers ${GUNICORN_WORKERS:-4}
+      --timeout 300
+      --access-logfile -
+      --error-logfile -
     volumes:
       - media_files_prod:/app/media
       - static_files_prod:/app/static
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     environment:
-      - DEBUG=False
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-ritmo_user}:${POSTGRES_PASSWORD:-ritmo_password}@postgres:5432/${POSTGRES_DB:-ritmo_db}
-      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
-      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
-      - DJANGO_SETTINGS_MODULE=ritmo.settings.production
+      <<: *backend-env
     depends_on:
-      postgres:
-        condition: service_healthy
+      <<: *backend-depends
     restart: unless-stopped
     networks:
       - ritmo_network
 
-  frontend:
+  # ── Celery worker (filas de export por prioridade) ────────────────────────
+  celery_worker:
+    image: ${BACKEND_IMAGE:-ritmo-backend:latest}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: ritmo_celery_worker_prod
+    command: >
+      celery -A ritmo worker
+      --loglevel=info
+      --concurrency=${CELERY_CONCURRENCY:-4}
+      -Q default,export_high,export_normal,export_low
+    volumes:
+      - media_files_prod:/app/media
+    environment:
+      <<: *backend-env
+    depends_on:
+      <<: *backend-depends
+    restart: unless-stopped
+    networks:
+      - ritmo_network
+
+  # ── Celery beat (tarefas agendadas — opcional) ────────────────────────────
+  celery_beat:
+    image: ${BACKEND_IMAGE:-ritmo-backend:latest}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: ritmo_celery_beat_prod
+    command: >
+      celery -A ritmo beat
+      --loglevel=info
+      --schedule=/tmp/celerybeat-schedule
+    environment:
+      <<: *backend-env
+    depends_on:
+      <<: *backend-depends
+    restart: unless-stopped
+    networks:
+      - ritmo_network
+    profiles:
+      - beat
+
+  # ── Nginx (HTTPS, serve frontend build, proxy API) ───────────────────────
+  nginx:
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
-    container_name: ritmo_frontend_prod
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      - VITE_API_URL=${VITE_API_URL:-http://localhost:8000}
-    depends_on:
-      - backend
-    restart: unless-stopped
-    networks:
-      - ritmo_network
-
-  # Nginx reverse proxy (opcional)
-  nginx:
-    image: nginx:alpine
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
     container_name: ritmo_nginx_prod
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
       - static_files_prod:/var/www/static:ro
       - media_files_prod:/var/www/media:ro
+      - certbot_webroot:/var/www/certbot:ro
     depends_on:
       - backend
-      - frontend
     restart: unless-stopped
     networks:
       - ritmo_network
-    profiles:
-      - nginx
 
-  # Redis para cache (opcional)
-  redis:
-    image: redis:7-alpine
-    container_name: ritmo_redis_prod
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
+  # ── Certbot (renovação de certificados SSL — opcional) ────────────────────
+  certbot:
+    image: certbot/certbot:latest
+    container_name: ritmo_certbot
     volumes:
-      - redis_data_prod:/data
-    ports:
-      - "6379:6379"
-    restart: unless-stopped
-    networks:
-      - ritmo_network
+      - ./nginx/ssl:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+    command: >
+      certonly --webroot
+      --webroot-path=/var/www/certbot
+      --email ${CERTBOT_EMAIL:-admin@ritmo.app}
+      --agree-tos --no-eff-email
+      -d ${DOMAIN:-ritmo.app}
     profiles:
-      - cache
+      - certbot
 
 volumes:
   postgres_data_prod:
   media_files_prod:
   static_files_prod:
   redis_data_prod:
+  certbot_webroot:
 
 networks:
   ritmo_network:

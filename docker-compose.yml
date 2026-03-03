@@ -1,6 +1,16 @@
-version: '3.8'
+# ============================================================================
+# Ritmo — Docker Compose DESENVOLVIMENTO
+# ============================================================================
+# Uso: docker compose up --build
+#      docker compose down
+#
+# Frontend: http://localhost:5173   (Vite dev server, hot-reload)
+# Backend:  http://localhost:8000   (Django runserver)
+# Admin:    http://localhost:8000/admin
+# ============================================================================
 
 services:
+  # ── Banco de dados ────────────────────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
     container_name: ritmo_postgres
@@ -18,6 +28,21 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Redis (broker Celery + cache) ─────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ritmo_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend Django ────────────────────────────────────────────────────────
   backend:
     build:
       context: ./backend
@@ -31,9 +56,20 @@ services:
       - "8000:8000"
     environment:
       - DEBUG=True
-      - DATABASE_URL=postgresql://ritmo_user:ritmo_password@postgres:5432/ritmo_db
+      - DB_NAME=ritmo_db
+      - DB_USER=ritmo_user
+      - DB_PASSWORD=ritmo_password
+      - DB_HOST=postgres
+      - DB_PORT=5432
       - ALLOWED_HOSTS=localhost,127.0.0.1,backend
-      # OAuth credentials (configure with real values)
+      - SECRET_KEY=dev-insecure-key-change-in-production
+      # Celery / Redis
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - USE_ASYNC_EXPORT=${USE_ASYNC_EXPORT:-false}
+      # Email (console em dev)
+      - EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
+      # OAuth (configure no .env se necessario)
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - FACEBOOK_APP_ID=${FACEBOOK_APP_ID:-}
@@ -48,10 +84,6 @@ services:
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
       - STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY:-}
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
-      # Celery / Redis
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - USE_ASYNC_EXPORT=${USE_ASYNC_EXPORT:-false}
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,19 +92,7 @@ services:
     stdin_open: true
     tty: true
 
-  redis:
-    image: redis:7-alpine
-    container_name: ritmo_redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
+  # ── Celery worker (filas de export) ───────────────────────────────────────
   celery_worker:
     build:
       context: ./backend
@@ -88,7 +108,12 @@ services:
       - media_files:/app/media
     environment:
       - DEBUG=True
-      - DATABASE_URL=postgresql://ritmo_user:ritmo_password@postgres:5432/ritmo_db
+      - DB_NAME=ritmo_db
+      - DB_USER=ritmo_user
+      - DB_PASSWORD=ritmo_password
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - SECRET_KEY=dev-insecure-key-change-in-production
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - USE_ASYNC_EXPORT=${USE_ASYNC_EXPORT:-false}
@@ -99,6 +124,7 @@ services:
       redis:
         condition: service_healthy
 
+  # ── Frontend Vite (dev server com hot-reload) ─────────────────────────────
   frontend:
     build:
       context: ./frontend
