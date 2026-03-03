@@ -18,6 +18,8 @@ from .serializers import (
 from .video_processor import extract_video_metadata, export_video_with_counter, export_video_with_elements
 from .audio_analyzer import analyze_video_with_downbeat, generate_waveform_data
 import os
+import math
+from decimal import Decimal
 
 
 class VideoViewSet(viewsets.ModelViewSet):
@@ -54,10 +56,50 @@ class VideoViewSet(viewsets.ModelViewSet):
         return VideoSerializer
     
     def perform_create(self, serializer):
-        """Set owner if authenticated, or session_key if anonymous"""
+        """Set owner if authenticated, or session_key if anonymous. Check storage limits."""
         user = self.request.user
+        
+        # ── Billing: check storage limit before upload ──
         if user.is_authenticated:
-            serializer.save(owner=user)
+            uploaded_file = self.request.FILES.get('file')
+            file_size = uploaded_file.size if uploaded_file else 0
+            
+            if file_size > 0:
+                try:
+                    from billing.models import StorageUsage, StorageLimitExceededError
+                    
+                    storage, _ = StorageUsage.objects.get_or_create(user=user)
+                    
+                    # Get plan limit
+                    try:
+                        sub = user.subscription
+                        if sub.is_active and not storage.has_space(file_size, sub.plan):
+                            from rest_framework.exceptions import ValidationError
+                            gb_used = storage.gb_used
+                            gb_limit = sub.plan.storage_limit_gb
+                            raise ValidationError({
+                                'detail': f'Limite de storage atingido ({gb_used:.1f}/{gb_limit} GB). Faca upgrade do plano ou delete videos antigos.',
+                                'storage_used_gb': round(gb_used, 2),
+                                'storage_limit_gb': gb_limit,
+                                'file_size_mb': round(file_size / (1024 * 1024), 1),
+                            })
+                    except user.subscription.RelatedObjectDoesNotExist:
+                        pass  # No subscription, allow upload
+                    except AttributeError:
+                        pass  # No subscription relation
+                except ImportError:
+                    pass  # billing app not installed
+            
+            instance = serializer.save(owner=user)
+            
+            # ── Billing: track storage after successful save ──
+            if instance.file and instance.file.size > 0:
+                try:
+                    from billing.models import StorageUsage
+                    storage, _ = StorageUsage.objects.get_or_create(user=user)
+                    storage.add_file(instance.file.size)
+                except ImportError:
+                    pass
         else:
             session_key = self.request.headers.get('X-Session-Key', '')
             if not session_key:
@@ -466,7 +508,88 @@ class VideoViewSet(viewsets.ModelViewSet):
         preview_width = request.data.get('preview_width')
         preview_height = request.data.get('preview_height')
         
+        # ── Billing: reserve export credits ──
+        export_job = None
+        user = request.user
+        if user.is_authenticated:
+            try:
+                from billing.models import CreditBalance, ExportJob, InsufficientCreditsError
+                from django.db import transaction
+                
+                # Calculate duration in minutes (account for segments + speed)
+                if video_segments and len(video_segments) > 0:
+                    total_seconds = sum(
+                        (seg.get('end_time', video.duration or 0) - seg.get('start_time', 0)) / max(seg.get('speed', 1.0), 0.1)
+                        for seg in video_segments
+                    )
+                else:
+                    total_seconds = (end_time or video.duration or 0) - start_time
+                
+                duration_minutes = Decimal(str(max(math.ceil(total_seconds / 60), 1)))
+                
+                # Determine resolution and multiplier
+                resolution = '4k' if (video.height or 0) >= 2160 else '1080p'
+                multiplier = Decimal('2.0') if resolution == '4k' else Decimal('1.0')
+                credits_needed = duration_minutes * multiplier
+                
+                # Get export priority from subscription
+                priority = 'normal'
+                try:
+                    sub = user.subscription
+                    if sub.is_active:
+                        priority = sub.plan.export_priority
+                except Exception:
+                    pass
+                
+                # Create export job
+                export_job = ExportJob.objects.create(
+                    user=user,
+                    video=video,
+                    status='pending',
+                    resolution=resolution,
+                    priority=priority,
+                    estimated_duration_minutes=duration_minutes,
+                    credit_multiplier=multiplier,
+                    credits_consumed=credits_needed,
+                )
+                
+                # Reserve credits atomically
+                with transaction.atomic():
+                    balance = CreditBalance.objects.select_for_update().filter(user=user).first()
+                    if balance and balance.has_enough_credits(credits_needed):
+                        balance.debit(
+                            credits_needed,
+                            description=f"Export video '{video.title}' ({resolution}, {duration_minutes}min)",
+                            export_job=export_job,
+                        )
+                        export_job.status = 'reserved'
+                        export_job.save(update_fields=['status'])
+                    elif balance:
+                        export_job.status = 'canceled'
+                        export_job.error_message = 'Creditos insuficientes'
+                        export_job.save(update_fields=['status', 'error_message'])
+                        return Response(
+                            {
+                                'detail': 'Creditos insuficientes para exportar.',
+                                'credits_needed': float(credits_needed),
+                                'credits_available': float(balance.total_minutes),
+                            },
+                            status=status.HTTP_402_PAYMENT_REQUIRED,
+                        )
+                    # If no balance record exists, allow export (free tier / no billing setup)
+            except ImportError:
+                pass  # billing app not installed, skip
+            except Exception as billing_err:
+                import logging
+                logging.getLogger(__name__).warning(f"Billing check skipped: {billing_err}")
+        
         try:
+            if export_job:
+                from django.utils import timezone as tz
+                export_job.status = 'processing'
+                export_job.started_at = tz.now()
+                export_job.save(update_fields=['status', 'started_at'])
+            
             # Get video metadata
             video_metadata = {
                 'width': video.width,
@@ -487,6 +610,16 @@ class VideoViewSet(viewsets.ModelViewSet):
                 preview_height=preview_height
             )
             
+            if export_job:
+                from django.utils import timezone as tz
+                export_job.status = 'completed'
+                export_job.completed_at = tz.now()
+                try:
+                    export_job.output_file_size = os.path.getsize(output_path)
+                except Exception:
+                    pass
+                export_job.save(update_fields=['status', 'completed_at', 'output_file_size'])
+            
             # Return the file
             response = FileResponse(
                 open(output_path, 'rb'),
@@ -496,6 +629,32 @@ class VideoViewSet(viewsets.ModelViewSet):
             return response
             
         except Exception as e:
+            # ── Billing: refund credits on failure ──
+            if export_job and export_job.status in ('reserved', 'processing'):
+                try:
+                    from billing.models import CreditBalance, CreditTransaction
+                    from django.db import transaction
+                    with transaction.atomic():
+                        balance = CreditBalance.objects.select_for_update().get(user=user)
+                        refund_amount = export_job.credits_consumed
+                        # Refund to subscription credits first (reverse of debit)
+                        balance.subscription_minutes += refund_amount
+                        balance.save(update_fields=['subscription_minutes', 'updated_at'])
+                        CreditTransaction.objects.create(
+                            user=user,
+                            transaction_type='refund',
+                            minutes=refund_amount,
+                            balance_after=balance.total_minutes,
+                            description=f"Refund: export failed - {str(e)[:100]}",
+                            export_job=export_job,
+                        )
+                    export_job.status = 'failed'
+                    export_job.error_message = str(e)[:500]
+                    export_job.save(update_fields=['status', 'error_message'])
+                except Exception as refund_err:
+                    import logging
+                    logging.getLogger(__name__).error(f"Failed to refund credits: {refund_err}")
+            
             return Response(
                 {'detail': f'Error exporting video: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
