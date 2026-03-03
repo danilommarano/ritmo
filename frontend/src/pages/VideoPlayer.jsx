@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ArrowLeft, Play, Edit, Clock, Calendar, Loader2, AlertCircle } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
 
 function VideoPlayer() {
   const { id } = useParams()
+  const { authFetch } = useAuth()
   const [video, setVideo] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -14,7 +16,7 @@ function VideoPlayer() {
 
   const fetchVideo = async () => {
     try {
-      const response = await fetch(`/api/videos/videos/${id}/`)
+      const response = await authFetch(`/api/videos/videos/${id}/`)
       if (!response.ok) {
         throw new Error('Vídeo não encontrado')
       }

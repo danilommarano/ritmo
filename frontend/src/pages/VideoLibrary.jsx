@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Play, Edit, Clock, Video, Upload, Loader2 } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
 
 function VideoLibrary() {
+  const { authFetch } = useAuth()
   const [videos, setVideos] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -20,7 +22,7 @@ function VideoLibrary() {
 
   const fetchVideos = async () => {
     try {
-      const response = await fetch('/api/videos/videos/')
+      const response = await authFetch('/api/videos/videos/')
       if (!response.ok) {
         throw new Error('Falha ao carregar vídeos')
       }

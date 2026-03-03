@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Upload, Video, X, Check, AlertCircle, ArrowLeft, FileVideo } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
 
 function VideoUpload() {
   const navigate = useNavigate()
+  const { authFetch, getAuthHeaders } = useAuth()
   const [file, setFile] = useState(null)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -78,7 +80,7 @@ function VideoUpload() {
           
           // Process metadata
           try {
-            await fetch(`/api/videos/videos/${video.id}/process_metadata/`, {
+            await authFetch(`/api/videos/videos/${video.id}/process_metadata/`, {
               method: 'POST'
             })
           } catch (err) {
@@ -99,6 +101,11 @@ function VideoUpload() {
       })
       
       xhr.open('POST', '/api/videos/videos/')
+      // Add auth headers (JWT or session key)
+      const headers = getAuthHeaders()
+      Object.entries(headers).forEach(([key, value]) => {
+        xhr.setRequestHeader(key, value)
+      })
       xhr.send(formData)
       
     } catch (err) {

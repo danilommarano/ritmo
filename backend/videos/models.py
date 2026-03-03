@@ -10,7 +10,9 @@ import os
 
 def video_upload_path(instance, filename):
     """Generate upload path for video files"""
-    return f'videos/{instance.owner.id}/{filename}'
+    if instance.owner_id:
+        return f'videos/{instance.owner.id}/{filename}'
+    return f'videos/anonymous/{instance.session_key or "unknown"}/{filename}'
 
 
 class Video(TimeStampedModel):
@@ -28,7 +30,16 @@ class Video(TimeStampedModel):
     owner = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
-        related_name='videos'
+        related_name='videos',
+        null=True,
+        blank=True
+    )
+    session_key = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Session key for anonymous users"
     )
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
@@ -68,10 +79,13 @@ class Video(TimeStampedModel):
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['owner', '-created_at']),
+            models.Index(fields=['session_key', '-created_at']),
         ]
     
     def __str__(self):
-        return f"{self.title} ({self.owner.username})"
+        if self.owner:
+            return f"{self.title} ({self.owner.username})"
+        return f"{self.title} (anonymous: {self.session_key or '?'})"
     
     @property
     def file_url(self):

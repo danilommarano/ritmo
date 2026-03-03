@@ -23,7 +23,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: ritmo_backend
-    command: python manage.py runserver 0.0.0.0:8000
+    command: bash -c "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"
     volumes:
       - ./backend:/app
       - media_files:/app/media
@@ -33,6 +33,17 @@ services:
       - DEBUG=True
       - DATABASE_URL=postgresql://ritmo_user:ritmo_password@postgres:5432/ritmo_db
       - ALLOWED_HOSTS=localhost,127.0.0.1,backend
+      # OAuth credentials (configure with real values)
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - FACEBOOK_APP_ID=${FACEBOOK_APP_ID:-}
+      - FACEBOOK_APP_SECRET=${FACEBOOK_APP_SECRET:-}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+      - APPLE_CLIENT_ID=${APPLE_CLIENT_ID:-}
+      - APPLE_CLIENT_SECRET=${APPLE_CLIENT_SECRET:-}
+      - APPLE_KEY_ID=${APPLE_KEY_ID:-}
+      - APPLE_PRIVATE_KEY=${APPLE_PRIVATE_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,6 +62,10 @@ services:
       - "5173:5173"
     environment:
       - VITE_API_URL=http://localhost:8000
+      - VITE_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - VITE_FACEBOOK_APP_ID=${FACEBOOK_APP_ID:-}
+      - VITE_GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - VITE_APPLE_CLIENT_ID=${APPLE_CLIENT_ID:-}
     depends_on:
       - backend
     stdin_open: true

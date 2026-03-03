@@ -89,11 +89,16 @@ class FragmentSerializer(serializers.ModelSerializer):
 class VideoSerializer(serializers.ModelSerializer):
     """Serializer for Video model"""
     
-    owner_username = serializers.ReadOnlyField(source='owner.username')
+    owner_username = serializers.SerializerMethodField()
     file_url = serializers.SerializerMethodField()
     rhythm_grid = RhythmGridSerializer(read_only=True)
     fragments = FragmentSerializer(many=True, read_only=True)
     fragments_count = serializers.SerializerMethodField()
+    
+    def get_owner_username(self, obj):
+        if obj.owner:
+            return obj.owner.username
+        return None
     
     def get_file_url(self, obj):
         """Get URL for the video file"""
@@ -108,6 +113,7 @@ class VideoSerializer(serializers.ModelSerializer):
             'id',
             'owner',
             'owner_username',
+            'session_key',
             'title',
             'description',
             'file',
@@ -128,6 +134,7 @@ class VideoSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id',
             'owner',
+            'session_key',
             'duration',
             'fps',
             'width',
@@ -171,7 +178,13 @@ class VideoElementSerializer(serializers.ModelSerializer):
 class VideoListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for video list view"""
     
-    owner_username = serializers.ReadOnlyField(source='owner.username')
+    owner_username = serializers.SerializerMethodField()
+    
+    def get_owner_username(self, obj):
+        if obj.owner:
+            return obj.owner.username
+        return None
+    
     file_url = serializers.SerializerMethodField()
     has_rhythm_grid = serializers.SerializerMethodField()
     fragments_count = serializers.SerializerMethodField()

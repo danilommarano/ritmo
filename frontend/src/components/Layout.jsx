@@ -1,7 +1,13 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Music, Upload, Home, Video } from 'lucide-react'
+import { Music, Upload, Home, Video, LogIn, LogOut, User } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
+import AuthModal from './AuthModal'
 
 function Layout({ children }) {
+  const { user, isAuthenticated, logout } = useAuth()
+  const [showAuthModal, setShowAuthModal] = useState(false)
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-ritmo-50 via-creative-50 to-electric-50">
       {/* Header */}
@@ -35,6 +41,33 @@ function Layout({ children }) {
                 <Upload className="w-4 h-4" />
                 <span className="font-medium">Upload</span>
               </Link>
+
+              {/* Auth */}
+              {isAuthenticated ? (
+                <div className="flex items-center space-x-3">
+                  <div className="flex items-center space-x-2 px-3 py-2 bg-gray-100 rounded-lg">
+                    <User className="w-4 h-4 text-ritmo-600" />
+                    <span className="text-sm font-medium text-gray-700 max-w-[140px] truncate">
+                      {user?.full_name || user?.email}
+                    </span>
+                  </div>
+                  <button
+                    onClick={logout}
+                    className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-300"
+                    title="Sair"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowAuthModal(true)}
+                  className="flex items-center space-x-2 px-4 py-2 text-ritmo-600 hover:bg-ritmo-50 rounded-lg transition-all duration-300 font-medium"
+                >
+                  <LogIn className="w-4 h-4" />
+                  <span>Entrar</span>
+                </button>
+              )}
             </nav>
           </div>
         </div>
@@ -59,6 +92,13 @@ function Layout({ children }) {
           </p>
         </div>
       </footer>
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        reason="default"
+      />
     </div>
   )
 }

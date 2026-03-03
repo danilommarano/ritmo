@@ -22,10 +22,30 @@ import os
 
 class VideoViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for Video CRUD operations
+    ViewSet for Video CRUD operations.
+    Supports both authenticated users and anonymous sessions.
     """
-    queryset = Video.objects.all()
     parser_classes = (MultiPartParser, FormParser, JSONParser)
+    
+    def get_queryset(self):
+        """Filter videos by owner (authenticated) or session_key (anonymous)"""
+        from django.db.models import Q
+        
+        user = self.request.user
+        session_key = self.request.headers.get('X-Session-Key', '')
+        
+        if user.is_authenticated:
+            # Authenticated: show owned videos + anonymous videos from their current session
+            q = Q(owner=user)
+            if session_key:
+                q |= Q(session_key=session_key, owner__isnull=True)
+            return Video.objects.filter(q)
+        
+        # Anonymous: filter by session key from header
+        if session_key:
+            return Video.objects.filter(session_key=session_key, owner__isnull=True)
+        
+        return Video.objects.none()
     
     def get_serializer_class(self):
         """Use different serializers for list and detail views"""
@@ -34,13 +54,16 @@ class VideoViewSet(viewsets.ModelViewSet):
         return VideoSerializer
     
     def perform_create(self, serializer):
-        """Set the owner to the current user"""
-        # For now, using first user. TODO: Implement authentication
-        from django.contrib.auth.models import User
-        user = User.objects.first()
-        if not user:
-            user = User.objects.create_user(username='default_user')
-        serializer.save(owner=user)
+        """Set owner if authenticated, or session_key if anonymous"""
+        user = self.request.user
+        if user.is_authenticated:
+            serializer.save(owner=user)
+        else:
+            session_key = self.request.headers.get('X-Session-Key', '')
+            if not session_key:
+                import uuid
+                session_key = str(uuid.uuid4())
+            serializer.save(session_key=session_key)
     
     @action(detail=True, methods=['post'])
     def create_rhythm_grid(self, request, pk=None):

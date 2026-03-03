@@ -4,6 +4,7 @@ Django settings for ritmo project.
 
 from pathlib import Path
 from decouple import config, Csv
+from datetime import timedelta
 import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -25,16 +26,33 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.sites',
     
     # Third party apps
     'rest_framework',
+    'rest_framework.authtoken',
     'corsheaders',
     'drf_spectacular',
+    
+    # allauth
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
+    'allauth.socialaccount.providers.google',
+    'allauth.socialaccount.providers.apple',
+    'allauth.socialaccount.providers.facebook',
+    'allauth.socialaccount.providers.github',
+    
+    # dj-rest-auth
+    'dj_rest_auth',
+    'dj_rest_auth.registration',
     
     # Local apps
     'core',
     'videos',
 ]
+
+SITE_ID = 1
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -45,6 +63,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'allauth.account.middleware.AccountMiddleware',
 ]
 
 ROOT_URLCONF = 'ritmo.urls'
@@ -78,6 +97,12 @@ DATABASES = {
         'PORT': config('DB_PORT', default='5432'),
     }
 }
+
+# Authentication backends
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+    'allauth.account.auth_backends.AuthenticationBackend',
+]
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -114,12 +139,80 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # REST Framework configuration
 REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',  # Change in production
+        'rest_framework.permissions.AllowAny',
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+# SimpleJWT settings
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=24),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+    'ROTATE_REFRESH_TOKENS': True,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+# dj-rest-auth settings
+REST_AUTH = {
+    'USE_JWT': True,
+    'JWT_AUTH_COOKIE': 'ritmo-auth',
+    'JWT_AUTH_REFRESH_COOKIE': 'ritmo-refresh',
+    'JWT_AUTH_HTTPONLY': False,  # Allow JS to read token for SPA
+}
+
+# allauth settings
+ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_USERNAME_REQUIRED = False
+ACCOUNT_AUTHENTICATION_METHOD = 'email'
+ACCOUNT_EMAIL_VERIFICATION = 'none'  # Simplify for now; enable in production
+ACCOUNT_UNIQUE_EMAIL = True
+ACCOUNT_ADAPTER = 'core.adapters.CustomAccountAdapter'
+SOCIALACCOUNT_ADAPTER = 'core.adapters.CustomSocialAccountAdapter'
+SOCIALACCOUNT_AUTO_SIGNUP = True
+SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True
+LOGIN_REDIRECT_URL = '/'
+
+# Social auth provider settings (configure via env vars or Django admin)
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'APP': {
+            'client_id': config('GOOGLE_CLIENT_ID', default=''),
+            'secret': config('GOOGLE_CLIENT_SECRET', default=''),
+        },
+        'SCOPE': ['profile', 'email'],
+        'AUTH_PARAMS': {'access_type': 'online'},
+    },
+    'facebook': {
+        'APP': {
+            'client_id': config('FACEBOOK_APP_ID', default=''),
+            'secret': config('FACEBOOK_APP_SECRET', default=''),
+        },
+        'METHOD': 'oauth2',
+        'SCOPE': ['email', 'public_profile'],
+        'FIELDS': ['id', 'email', 'name', 'first_name', 'last_name', 'picture'],
+    },
+    'github': {
+        'APP': {
+            'client_id': config('GITHUB_CLIENT_ID', default=''),
+            'secret': config('GITHUB_CLIENT_SECRET', default=''),
+        },
+        'SCOPE': ['user:email'],
+    },
+    'apple': {
+        'APP': {
+            'client_id': config('APPLE_CLIENT_ID', default=''),
+            'secret': config('APPLE_CLIENT_SECRET', default=''),
+            'key': config('APPLE_KEY_ID', default=''),
+            'certificate_key': config('APPLE_PRIVATE_KEY', default=''),
+        },
+    },
 }
 
 # CORS settings
@@ -145,3 +238,6 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500 MB
 # Video processing settings
 VIDEO_ALLOWED_EXTENSIONS = ['mp4', 'avi', 'mov', 'mkv', 'webm']
 VIDEO_MAX_SIZE = 524288000  # 500 MB
+
+# Anonymous session settings
+ANONYMOUS_SESSION_EXPIRY_HOURS = config('ANONYMOUS_SESSION_EXPIRY_HOURS', default=72, cast=int)
