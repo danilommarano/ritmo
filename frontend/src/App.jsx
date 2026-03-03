@@ -7,6 +7,10 @@ import VideoPlayer from './pages/VideoPlayer'
 import VideoUpload from './pages/VideoUpload'
 import VideoEditor from './components/VideoEditor'
 import AuthCallback from './pages/AuthCallback'
+import PricingPage from './pages/PricingPage'
+import BillingPage from './pages/BillingPage'
+import BillingSuccess from './pages/BillingSuccess'
+import BillingCancel from './pages/BillingCancel'
 import './App.css'
 
 function App() {
@@ -32,6 +36,11 @@ function App() {
           } />
           {/* Video Editor - Full screen without Layout */}
           <Route path="/editor/:id" element={<VideoEditor />} />
+          {/* Billing & Pricing */}
+          <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/billing" element={<BillingPage />} />
+          <Route path="/billing/success" element={<BillingSuccess />} />
+          <Route path="/billing/cancel" element={<BillingCancel />} />
           {/* OAuth callback (opened in popup) */}
           <Route path="/auth/callback/:provider" element={<AuthCallback />} />
         </Routes>

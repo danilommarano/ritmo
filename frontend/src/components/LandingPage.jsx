@@ -21,6 +21,7 @@ const LandingPage = () => {
             <a href="#como-funciona" className="text-sm text-gray-400 hover:text-white transition-colors">Como funciona</a>
             <a href="#recursos" className="text-sm text-gray-400 hover:text-white transition-colors">Recursos</a>
             <a href="#para-quem" className="text-sm text-gray-400 hover:text-white transition-colors">Para quem</a>
+            <Link to="/pricing" className="text-sm text-gray-400 hover:text-white transition-colors">Planos</Link>
             <Link
               to="/upload"
               className="px-5 py-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white text-sm font-medium rounded-full transition-all duration-300 hover:shadow-lg hover:shadow-violet-500/25"
