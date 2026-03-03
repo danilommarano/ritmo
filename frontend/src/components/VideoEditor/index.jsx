@@ -1203,16 +1203,9 @@ function VideoEditor() {
     setCuts(prev => prev.filter(c => c !== cutTime))
   }, [])
 
-  // Export video with elements — requires authentication
+  // Export video with elements
   const handleExportVideo = async () => {
     if (!video || !video.id) return
-    
-    // Gate export behind authentication
-    if (!isAuthenticated) {
-      setAuthModalReason('export')
-      setShowAuthModal(true)
-      return
-    }
     
     setExporting(true)
     try {
