@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, ChevronDown, Download, Video, X, Undo2, Redo2, LogIn, LogOut, User } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Download, Video, X, Undo2, Redo2, LogIn, LogOut, User, Clock, HardDrive, AlertTriangle } from 'lucide-react'
 import Toolbar from './Toolbar'
 import VideoPreview from './VideoPreview'
 import Timeline from './Timeline'
@@ -70,6 +70,9 @@ function VideoEditor() {
   const [showExportDropdown, setShowExportDropdown] = useState(false)
   const [exporting, setExporting] = useState(false)
   
+  // Billing state
+  const [billingInfo, setBillingInfo] = useState(null) // { credits, storage, subscription }
+  
   // Title editing state
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editedTitle, setEditedTitle] = useState('')
@@ -82,6 +85,15 @@ function VideoEditor() {
   const isSeekingRef = useRef(false)
   const historyDebounceRef = useRef(null)
   const pendingHistoryRef = useRef(null)
+
+  // Fetch billing info for authenticated users
+  useEffect(() => {
+    if (!isAuthenticated) { setBillingInfo(null); return }
+    authFetch('/api/billing/status/')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data) setBillingInfo(data) })
+      .catch(() => {})
+  }, [isAuthenticated, authFetch])
 
   // Calculate effective duration based on video segments
   const calculateEffectiveDuration = useCallback(() => {
@@ -1250,6 +1262,12 @@ function VideoEditor() {
         }),
       })
       
+      if (response.status === 402) {
+        const errData = await response.json().catch(() => ({}))
+        alert(`Creditos insuficientes: necessario ${errData.credits_needed || '?'} min, disponivel ${errData.credits_available || '?'} min.`)
+        return
+      }
+      
       if (!response.ok) {
         throw new Error('Falha ao exportar vídeo')
       }
@@ -1266,6 +1284,14 @@ function VideoEditor() {
       
       setShowExportDropdown(false)
       alert('Vídeo exportado com sucesso!')
+      
+      // Refresh billing info after export
+      if (isAuthenticated) {
+        authFetch('/api/billing/status/')
+          .then(res => res.ok ? res.json() : null)
+          .then(data => { if (data) setBillingInfo(data) })
+          .catch(() => {})
+      }
     } catch (err) {
       alert('Erro ao exportar: ' + err.message)
     } finally {
@@ -1359,6 +1385,54 @@ function VideoEditor() {
             )}
           </div>
 
+          {/* Billing badges (authenticated users with billing) */}
+          {billingInfo && billingInfo.subscription && (
+            <div className="flex items-center gap-3 px-3 py-1 bg-gray-700/50 rounded-lg">
+              {/* Credits badge */}
+              <div
+                className="flex items-center gap-1.5 text-xs"
+                title={`Creditos: ${billingInfo.credits?.subscription_minutes?.toFixed?.(0) || 0} assinatura + ${billingInfo.credits?.purchased_minutes?.toFixed?.(0) || 0} comprados`}
+              >
+                <Clock className={`w-3.5 h-3.5 ${
+                  (billingInfo.credits?.total_minutes || 0) <= 5
+                    ? 'text-red-400'
+                    : (billingInfo.credits?.total_minutes || 0) <= 15
+                      ? 'text-yellow-400'
+                      : 'text-green-400'
+                }`} />
+                <span className={`font-mono font-bold ${
+                  (billingInfo.credits?.total_minutes || 0) <= 5
+                    ? 'text-red-400'
+                    : 'text-gray-200'
+                }`}>
+                  {billingInfo.credits?.total_minutes?.toFixed?.(0) || 0}
+                </span>
+                <span className="text-gray-500">
+                  /{billingInfo.subscription?.plan_limits?.export_minutes || '∞'} min
+                </span>
+              </div>
+              <span className="text-gray-600">|</span>
+              {/* Storage badge */}
+              <div
+                className="flex items-center gap-1.5 text-xs"
+                title={`Storage: ${billingInfo.storage?.gb_used?.toFixed?.(2) || 0} / ${billingInfo.subscription?.plan_limits?.storage_gb || '?'} GB`}
+              >
+                <HardDrive className={`w-3.5 h-3.5 ${
+                  billingInfo.subscription?.plan_limits?.storage_gb &&
+                  (billingInfo.storage?.gb_used || 0) / billingInfo.subscription.plan_limits.storage_gb > 0.9
+                    ? 'text-red-400'
+                    : 'text-blue-400'
+                }`} />
+                <span className="text-gray-200 font-mono font-bold">
+                  {billingInfo.storage?.gb_used?.toFixed?.(1) || '0.0'}
+                </span>
+                <span className="text-gray-500">
+                  /{billingInfo.subscription?.plan_limits?.storage_gb || '?'} GB
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Undo/Redo buttons */}
           <div className="flex items-center gap-1">
             <button
@@ -1431,10 +1505,25 @@ function VideoEditor() {
                     </div>
                   </div>
                   
+                  {/* Insufficient credits warning */}
+                  {billingInfo && billingInfo.subscription && (billingInfo.credits?.total_minutes || 0) <= 0 && (
+                    <div className="flex items-center gap-2 p-2 mb-3 bg-red-900/40 border border-red-700/50 rounded-lg text-xs text-red-300">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>Sem creditos de export. <a href="/pricing" className="underline text-red-200 hover:text-white">Fazer upgrade</a></span>
+                    </div>
+                  )}
+                  {billingInfo && billingInfo.subscription && (billingInfo.credits?.total_minutes || 0) > 0 && (billingInfo.credits?.total_minutes || 0) <= 5 && (
+                    <div className="flex items-center gap-2 p-2 mb-3 bg-yellow-900/40 border border-yellow-700/50 rounded-lg text-xs text-yellow-300">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>Apenas {billingInfo.credits.total_minutes.toFixed(0)} min restantes</span>
+                    </div>
+                  )}
+                  
                   <button
                     onClick={handleExportVideo}
-                    disabled={exporting || !video || elements.length === 0}
+                    disabled={exporting || !video || elements.length === 0 || (billingInfo?.subscription && (billingInfo.credits?.total_minutes || 0) <= 0)}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white rounded-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={billingInfo?.subscription && (billingInfo.credits?.total_minutes || 0) <= 0 ? 'Sem creditos de export disponiveis' : ''}
                   >
                     {exporting ? (
                       <>
