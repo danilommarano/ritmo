@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Music, Upload, Home, Video, LogIn, LogOut, User } from 'lucide-react'
+import { Music, Upload, Home, Video, LogIn, LogOut, User, GraduationCap } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import AuthModal from './AuthModal'
 
@@ -34,6 +34,14 @@ function Layout({ children }) {
                 <span className="font-medium">Biblioteca</span>
               </Link>
               
+              <Link 
+                to="/classrooms" 
+                className="flex items-center space-x-2 px-4 py-2 text-gray-700 hover:text-ritmo-600 hover:bg-ritmo-50 rounded-lg transition-all duration-300"
+              >
+                <GraduationCap className="w-4 h-4" />
+                <span className="font-medium">Turmas</span>
+              </Link>
+
               <Link 
                 to="/upload" 
                 className="flex items-center space-x-2 px-6 py-2 bg-ritmo-gradient text-white rounded-full hover:shadow-lg transition-all duration-300 transform hover:scale-105"

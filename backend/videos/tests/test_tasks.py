@@ -74,7 +74,7 @@ class RunExportTaskTests(TestCase):
         self.assertEqual(job.output_file_size, 1024000)
         self.assertEqual(result['status'], 'completed')
 
-    @patch('videos.tasks.export_video_with_elements')
+    @patch('videos.video_processor.export_video_with_elements')
     def test_failed_export_refunds_credits(self, mock_export):
         """Task failure should refund credits to the user."""
         mock_export.side_effect = Exception('FFmpeg crashed')
@@ -124,7 +124,7 @@ class RunExportTaskTests(TestCase):
         result = run_export(job.id)
         self.assertEqual(result['status'], 'skipped')
 
-    @patch('videos.tasks.export_video_with_elements')
+    @patch('videos.video_processor.export_video_with_elements')
     def test_pending_job_also_processed(self, mock_export):
         """Jobs in 'pending' status should also be processed."""
         mock_export.return_value = '/tmp/out.mp4'
@@ -137,7 +137,7 @@ class RunExportTaskTests(TestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, 'completed')
 
-    @patch('videos.tasks.export_video_with_elements')
+    @patch('videos.video_processor.export_video_with_elements')
     def test_export_params_passed_correctly(self, mock_export):
         """Task should pass export_params to export_video_with_elements."""
         mock_export.return_value = '/tmp/out.mp4'

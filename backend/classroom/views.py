@@ -1,7 +1,7 @@
 """
 Views for the Classroom teaching platform.
 """
-from rest_framework import viewsets, status, permissions
+from rest_framework import viewsets, status, permissions, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils import timezone
@@ -67,12 +67,19 @@ class ClassroomViewSet(viewsets.ModelViewSet):
         user = self.request.user
         return Classroom.objects.filter(
             Q(teacher=user) | Q(members__user=user)
-        ).distinct().annotate(
-            student_count=Count('members', filter=Q(members__role='student')),
-        )
+        ).distinct()
 
     def perform_create(self, serializer):
         serializer.save(teacher=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        # Return full detail with invite_code
+        classroom = serializer.instance
+        out = ClassroomListSerializer(classroom, context={'request': request})
+        return Response(out.data, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['post'], url_path='join')
     def join(self, request):
@@ -155,10 +162,7 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         user = self.request.user
         classroom_id = self.request.query_params.get('classroom')
 
-        qs = Assignment.objects.select_related('teacher', 'reference_video').annotate(
-            submission_count=Count('submissions'),
-            reviewed_count=Count('submissions', filter=Q(submissions__feedback__isnull=False)),
-        )
+        qs = Assignment.objects.select_related('teacher', 'reference_video')
 
         if classroom_id:
             qs = qs.filter(classroom_id=classroom_id)
