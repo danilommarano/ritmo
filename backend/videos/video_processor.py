@@ -562,7 +562,11 @@ def export_video_with_elements(video_path, elements, start_time=0, end_time=None
         
         # If we have video segments, we need to process them first
         # Each segment references a portion of the original video
-        if video_segments and len(video_segments) > 1:
+        # Process if multiple segments OR any segment has non-1.0 speed
+        has_speed_changes = video_segments and any(
+            abs(seg.get('speed', 1.0) - 1.0) > 0.01 for seg in video_segments
+        )
+        if video_segments and (len(video_segments) > 1 or has_speed_changes):
             # Create temporary files for each segment
             segment_files = []
             for i, segment in enumerate(video_segments):
@@ -574,19 +578,50 @@ def export_video_with_elements(video_path, elements, start_time=0, end_time=None
                 segment_output = os.path.join(output_dir, f'segment_{os.getpid()}_{i}.mp4')
                 segment_files.append(segment_output)
                 
-                # Extract this segment from the original video
-                seg_cmd = [
-                    'ffmpeg', '-y',
-                    '-ss', str(seg_start),
-                    '-t', str(seg_duration),
-                    '-i', video_path,
-                    '-c:v', 'libx264',
-                    '-preset', 'ultrafast',
-                    '-c:a', 'aac',
-                    segment_output
-                ]
+                # Extract this segment from the original video, applying speed if needed
+                if abs(seg_speed - 1.0) > 0.01:
+                    # Apply speed change using setpts for video and atempo for audio
+                    # setpts: PTS/speed (e.g. 0.5x speed => PTS/0.5 = PTS*2, slower)
+                    video_filter = f"setpts={1.0/seg_speed}*PTS"
+                    
+                    # atempo only accepts values between 0.5 and 100.0
+                    # For values < 0.5, chain multiple atempo filters
+                    audio_filters = []
+                    remaining_speed = seg_speed
+                    while remaining_speed < 0.5:
+                        audio_filters.append("atempo=0.5")
+                        remaining_speed /= 0.5
+                    while remaining_speed > 2.0:
+                        audio_filters.append("atempo=2.0")
+                        remaining_speed /= 2.0
+                    audio_filters.append(f"atempo={remaining_speed}")
+                    audio_filter = ",".join(audio_filters)
+                    
+                    seg_cmd = [
+                        'ffmpeg', '-y',
+                        '-ss', str(seg_start),
+                        '-t', str(seg_duration),
+                        '-i', video_path,
+                        '-vf', video_filter,
+                        '-af', audio_filter,
+                        '-c:v', 'libx264',
+                        '-preset', 'ultrafast',
+                        '-c:a', 'aac',
+                        segment_output
+                    ]
+                else:
+                    seg_cmd = [
+                        'ffmpeg', '-y',
+                        '-ss', str(seg_start),
+                        '-t', str(seg_duration),
+                        '-i', video_path,
+                        '-c:v', 'libx264',
+                        '-preset', 'ultrafast',
+                        '-c:a', 'aac',
+                        segment_output
+                    ]
                 
-                print(f"Creating segment {i}: {seg_start}s - {seg_end}s")
+                print(f"Creating segment {i}: {seg_start}s - {seg_end}s (speed: {seg_speed}x)")
                 result = subprocess.run(seg_cmd, capture_output=True, text=True)
                 if result.returncode != 0:
                     print(f"Segment extraction failed: {result.stderr}")
@@ -630,8 +665,9 @@ def export_video_with_elements(video_path, elements, start_time=0, end_time=None
                 pass
             
             # Update end_time to match the new concatenated duration
+            # Account for speed: a segment at 0.5x speed takes 2x longer in the output
             total_duration = sum(
-                (seg.get('end_time', original_duration) - seg.get('start_time', 0))
+                (seg.get('end_time', original_duration) - seg.get('start_time', 0)) / seg.get('speed', 1.0)
                 for seg in video_segments
             )
             end_time = total_duration

@@ -1,8 +1,8 @@
 // Timeline Component - Shows element tracks, cuts, waveform and playhead
 
 import { useRef, useCallback, useEffect, useState } from 'react'
-import { Play, Pause, ZoomIn, ZoomOut, Copy, Clipboard, CopyPlus, Trash2, Eye, EyeOff, Clock, Music2 } from 'lucide-react'
-import { formatTime, elementTypeLabels } from './utils'
+import { Play, Pause, ZoomIn, ZoomOut, Copy, Clipboard, CopyPlus, Trash2, Eye, EyeOff, Clock, Music2, X } from 'lucide-react'
+import { formatTime, elementTypeLabels, getBarNumberAtTime, getBarTimeRange, getSegmentAtTimelineTime } from './utils'
 
 function Timeline({
   elements,
@@ -31,7 +31,12 @@ function Timeline({
   onDuplicateElement,
   onDeleteElement,
   clipboardElement,
-  bpmConfig
+  bpmConfig,
+  barSelection,
+  onBarSelectionChange,
+  onBarSelectionRemove,
+  onBarSelectionDuplicate,
+  onBarSelectionSpeed
 }) {
   const timelineRef = useRef(null)
   const [zoom, setZoom] = useState(1) // pixels per second
@@ -43,6 +48,14 @@ function Timeline({
   const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false)
   const [contextMenu, setContextMenu] = useState(null) // { x, y, elementId }
   const [rulerMode, setRulerMode] = useState('bars') // 'time' or 'bars'
+  
+  // Bar selection drag state
+  const [barDragStart, setBarDragStart] = useState(null) // bar number where drag started
+  const [barDragCurrent, setBarDragCurrent] = useState(null) // current bar during drag
+  const [isDraggingBars, setIsDraggingBars] = useState(false)
+  const barClickTimerRef = useRef(null)
+  const [speedInputValue, setSpeedInputValue] = useState('0.5')
+  const barTrackRef = useRef(null)
   
   // Timeline height resize state
   const [timelineHeight, setTimelineHeight] = useState(280) // Default height in pixels
@@ -494,6 +507,7 @@ function Timeline({
   // Calculate total height of all tracks for proper scrolling
   const calculateTotalTracksHeight = () => {
     let totalHeight = 48 // Video track height
+    totalHeight += 32 // Bar selection track height
     
     if (trackGroups.text.length > 0) {
       const textRows = calculateRowIndex(trackGroups.text)
@@ -602,6 +616,279 @@ function Timeline({
         </div>
       )
     })
+  }
+
+  // Calculate bar info for each segment in the timeline
+  // Returns array of { barNumber (global), timelineStart, timelineEnd, segmentIndex, originalBarNumber }
+  const getTimelineBars = useCallback(() => {
+    if (!bpmConfig || !bpmConfig.bpm || bpmConfig.bpm <= 0) return []
+    
+    const { bpm, timeSignatureNum = 4, offsetStart = 0 } = bpmConfig
+    const barDuration = (60.0 / bpm) * timeSignatureNum
+    
+    const bars = []
+    let globalBarIndex = 1
+    let accumulatedTimelineTime = 0
+    
+    for (let segIdx = 0; segIdx < videoSegments.length; segIdx++) {
+      const segment = videoSegments[segIdx]
+      const segStart = segment.startTime
+      const segEnd = segment.endTime || originalDuration
+      const segDuration = segEnd - segStart
+      
+      // Find the first bar that overlaps with this segment
+      // A bar N starts at: offsetStart + (N-1) * barDuration
+      const effectiveStart = Math.max(segStart, offsetStart)
+      if (effectiveStart >= segEnd) {
+        accumulatedTimelineTime += segDuration
+        continue
+      }
+      
+      // First bar number that contains effectiveStart
+      const firstBarNum = Math.floor((effectiveStart - offsetStart) / barDuration) + 1
+      
+      let barNum = firstBarNum
+      while (true) {
+        const barOrigStart = offsetStart + (barNum - 1) * barDuration
+        const barOrigEnd = barOrigStart + barDuration
+        
+        // Clip to segment boundaries
+        const clippedStart = Math.max(barOrigStart, segStart)
+        const clippedEnd = Math.min(barOrigEnd, segEnd)
+        
+        if (clippedStart >= segEnd) break
+        if (clippedEnd - clippedStart < 0.001) { barNum++; continue }
+        
+        const tlStart = accumulatedTimelineTime + (clippedStart - segStart)
+        const tlEnd = accumulatedTimelineTime + (clippedEnd - segStart)
+        
+        bars.push({
+          barNumber: globalBarIndex,
+          originalBarNumber: barNum,
+          timelineStart: tlStart,
+          timelineEnd: tlEnd,
+          segmentIndex: segIdx
+        })
+        globalBarIndex++
+        barNum++
+      }
+      
+      accumulatedTimelineTime += segDuration
+    }
+    
+    return bars
+  }, [bpmConfig, videoSegments, originalDuration])
+
+  // Handle bar mousedown (start of click or drag)
+  const handleBarMouseDown = useCallback((e, barNumber) => {
+    e.stopPropagation()
+    e.preventDefault()
+    setBarDragStart(barNumber)
+    setBarDragCurrent(barNumber)
+    setIsDraggingBars(true)
+  }, [])
+
+  // Handle bar double-click (select whole segment)
+  const handleBarDoubleClick = useCallback((e, barNumber) => {
+    e.stopPropagation()
+    e.preventDefault()
+    
+    // Find which segment this bar belongs to
+    const allBars = getTimelineBars()
+    const clickedBar = allBars.find(b => b.barNumber === barNumber)
+    if (!clickedBar) return
+    
+    const segIdx = clickedBar.segmentIndex
+    // Select all bars in this segment
+    const segBars = allBars.filter(b => b.segmentIndex === segIdx)
+    if (segBars.length === 0) return
+    
+    const firstBar = segBars[0].barNumber
+    const lastBar = segBars[segBars.length - 1].barNumber
+    
+    onBarSelectionChange?.({ startBar: firstBar, endBar: lastBar })
+  }, [getTimelineBars, onBarSelectionChange])
+
+  // Handle bar drag move and end
+  useEffect(() => {
+    if (!isDraggingBars) return
+
+    const handleMouseMove = (e) => {
+      if (!timelineRef.current) return
+      const rect = timelineRef.current.getBoundingClientRect()
+      const scrollContainer = timelineRef.current.parentElement
+      const x = e.clientX - rect.left + scrollContainer.scrollLeft
+      const time = Math.max(0, Math.min(x / pixelsPerSecond, duration))
+      
+      // Find the bar at this time position
+      const allBars = getTimelineBars()
+      let hoveredBar = null
+      for (const bar of allBars) {
+        const barStartPx = timeToPixel(bar.timelineStart)
+        const barEndPx = timeToPixel(bar.timelineEnd)
+        if (x >= barStartPx && x <= barEndPx) {
+          hoveredBar = bar.barNumber
+          break
+        }
+      }
+      if (hoveredBar !== null) {
+        setBarDragCurrent(hoveredBar)
+      }
+    }
+
+    const handleMouseUp = () => {
+      if (barDragStart !== null && barDragCurrent !== null) {
+        const startBar = Math.min(barDragStart, barDragCurrent)
+        const endBar = Math.max(barDragStart, barDragCurrent)
+        onBarSelectionChange?.({ startBar, endBar })
+      }
+      setIsDraggingBars(false)
+      setBarDragStart(null)
+      setBarDragCurrent(null)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDraggingBars, barDragStart, barDragCurrent, pixelsPerSecond, duration, getTimelineBars, timeToPixel, onBarSelectionChange])
+
+  // Render bar selection track - interactive bar cells
+  const renderBarSelectionTrack = () => {
+    if (!bpmConfig || !bpmConfig.bpm || bpmConfig.bpm <= 0) return null
+    
+    const allBars = getTimelineBars()
+    if (allBars.length === 0) return null
+    
+    // Determine current selection range (from drag or from prop)
+    let selStart = null, selEnd = null
+    if (isDraggingBars && barDragStart !== null && barDragCurrent !== null) {
+      selStart = Math.min(barDragStart, barDragCurrent)
+      selEnd = Math.max(barDragStart, barDragCurrent)
+    } else if (barSelection) {
+      selStart = barSelection.startBar
+      selEnd = barSelection.endBar
+    }
+    
+    return (
+      <div ref={barTrackRef} className="relative h-8 border-b border-gray-700 bg-gray-850">
+        <span className="absolute left-2 top-1 text-xs text-gray-500 z-10 pointer-events-none">Compassos</span>
+        {allBars.map((bar) => {
+          const left = timeToPixel(bar.timelineStart)
+          const width = timeToPixel(bar.timelineEnd - bar.timelineStart)
+          const isSelected = selStart !== null && selEnd !== null && bar.barNumber >= selStart && bar.barNumber <= selEnd
+          
+          return (
+            <div
+              key={`bar-cell-${bar.barNumber}`}
+              className={`absolute top-0 h-full border-r border-gray-600/50 flex items-center justify-center cursor-pointer select-none transition-colors ${
+                isSelected
+                  ? 'bg-orange-500/40 hover:bg-orange-500/50 border-orange-400/50'
+                  : 'hover:bg-blue-500/20'
+              }`}
+              style={{ left: `${left}px`, width: `${Math.max(width, 2)}px` }}
+              onMouseDown={(e) => {
+                if (e.detail === 1) handleBarMouseDown(e, bar.barNumber)
+              }}
+              onDoubleClick={(e) => handleBarDoubleClick(e, bar.barNumber)}
+              title={`Compasso ${bar.originalBarNumber} (original)`}
+            >
+              {width > 20 && (
+                <span className={`text-[10px] font-mono pointer-events-none ${
+                  isSelected ? 'text-orange-200 font-bold' : 'text-gray-500'
+                }`}>
+                  {bar.originalBarNumber}
+                </span>
+              )}
+            </div>
+          )
+        })}
+        
+      </div>
+    )
+  }
+
+  // Render fixed-position selection action toolbar (rendered at component root level to avoid overflow clipping)
+  const renderBarSelectionToolbar = () => {
+    if (!bpmConfig || !bpmConfig.bpm || bpmConfig.bpm <= 0) return null
+    
+    const selStart = barSelection?.startBar
+    const selEnd = barSelection?.endBar
+    if (selStart == null || selEnd == null || isDraggingBars) return null
+    
+    const allBars = getTimelineBars()
+    const firstBar = allBars.find(b => b.barNumber === selStart)
+    const lastBar = allBars.find(b => b.barNumber === selEnd)
+    if (!firstBar || !lastBar || !barTrackRef.current || !timelineRef.current) return null
+    
+    const trackRect = barTrackRef.current.getBoundingClientRect()
+    const timelineRect = timelineRef.current.getBoundingClientRect()
+    const scrollContainer = timelineRef.current.parentElement
+    const scrollOffset = scrollContainer ? scrollContainer.scrollLeft : 0
+    
+    const selLeftPx = timeToPixel(firstBar.timelineStart) - scrollOffset
+    const selRightPx = timeToPixel(lastBar.timelineEnd) - scrollOffset
+    const selCenterX = timelineRect.left + (selLeftPx + selRightPx) / 2
+    const toolbarY = trackRect.top - 4
+    
+    return (
+      <div
+        className="fixed z-50 flex items-center gap-1 bg-gray-800 border border-gray-600 rounded-lg px-2 py-1 shadow-xl"
+        style={{ left: `${selCenterX}px`, top: `${toolbarY}px`, transform: 'translate(-50%, -100%)' }}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <span className="text-[10px] text-orange-300 font-mono mr-1">
+          {selStart === selEnd ? `C${firstBar.originalBarNumber}` : `C${firstBar.originalBarNumber}-${lastBar.originalBarNumber}`}
+        </span>
+        <button
+          onClick={() => onBarSelectionDuplicate?.()}
+          className="p-1 rounded hover:bg-gray-700 text-blue-400 hover:text-blue-300" 
+          title="Duplicar sele\u00e7\u00e3o"
+        >
+          <CopyPlus className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => onBarSelectionRemove?.()}
+          className="p-1 rounded hover:bg-gray-700 text-red-400 hover:text-red-300"
+          title="Remover sele\u00e7\u00e3o (Del)"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+        <span className="text-gray-600">|</span>
+        <div className="flex items-center gap-0.5">
+          <select
+            value={speedInputValue}
+            onChange={(e) => setSpeedInputValue(e.target.value)}
+            className="bg-gray-700 text-white text-[10px] rounded px-1 py-0.5 border border-gray-600 w-14"
+          >
+            <option value="0.25">0.25x</option>
+            <option value="0.5">0.5x</option>
+            <option value="0.75">0.75x</option>
+            <option value="1">1x</option>
+            <option value="1.5">1.5x</option>
+            <option value="2">2x</option>
+          </select>
+          <button
+            onClick={() => onBarSelectionSpeed?.(parseFloat(speedInputValue))}
+            className="p-1 rounded hover:bg-gray-700 text-yellow-400 hover:text-yellow-300"
+            title="Alterar velocidade da sele\u00e7\u00e3o"
+          >
+            <Clock className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <button
+          onClick={() => onBarSelectionChange?.(null)}
+          className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-300 ml-0.5"
+          title="Limpar sele\u00e7\u00e3o (Esc)"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    )
   }
 
   // Render bar lines (vertical lines at the start of each measure/bar)
@@ -722,6 +1009,9 @@ function Timeline({
                 </div>
               </div>
 
+              {/* Bar Selection Track */}
+              {renderBarSelectionTrack()}
+
               {/* Text Track */}
               {trackGroups.text.length > 0 && (() => {
                 const textRows = calculateRowIndex(trackGroups.text)
@@ -804,6 +1094,9 @@ function Timeline({
 
       {/* Context Menu */}
       {renderContextMenu()}
+
+      {/* Bar Selection Action Toolbar (fixed position, outside scroll) */}
+      {renderBarSelectionToolbar()}
     </div>
   )
 }

@@ -3,12 +3,14 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, ChevronDown, Download, Video, X, Undo2, Redo2 } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Download, Video, X, Undo2, Redo2, LogIn, LogOut, User } from 'lucide-react'
 import Toolbar from './Toolbar'
 import VideoPreview from './VideoPreview'
 import Timeline from './Timeline'
 import ConfigurationBar from './ConfigurationBar'
 import { generateId } from './utils'
+import { useAuth } from '../../contexts/AuthContext'
+import AuthModal from '../AuthModal'
 
 // Maximum history size
 const MAX_HISTORY = 100
@@ -16,6 +18,11 @@ const MAX_HISTORY = 100
 function VideoEditor() {
   const { id } = useParams()
   const videoRef = useRef(null)
+  const { user, isAuthenticated, authFetch, logout } = useAuth()
+  
+  // Auth modal state
+  const [showAuthModal, setShowAuthModal] = useState(false)
+  const [authModalReason, setAuthModalReason] = useState('export')
   
   // Video state
   const [video, setVideo] = useState(null)
@@ -40,6 +47,9 @@ function VideoEditor() {
     { id: generateId(), startTime: 0, endTime: null, speed: 1.0 } // null endTime means duration
   ])
   const [selectedSegmentId, setSelectedSegmentId] = useState(null)
+  
+  // Bar selection state
+  const [barSelection, setBarSelection] = useState(null) // { startBar, endBar } or null
   
   // BPM configuration for alerts
   const [bpmConfig, setBpmConfig] = useState({
@@ -196,7 +206,7 @@ function VideoEditor() {
     
     setIsSaving(true)
     try {
-      const response = await fetch(`/api/videos/videos/${id}/elements/`, {
+      const response = await authFetch(`/api/videos/videos/${id}/elements/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ elements })
@@ -323,7 +333,7 @@ function VideoEditor() {
     if (!video) return
     
     try {
-      const response = await fetch(`/api/videos/videos/${id}/create_rhythm_grid/`, {
+      const response = await authFetch(`/api/videos/videos/${id}/create_rhythm_grid/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -348,7 +358,7 @@ function VideoEditor() {
     if (!video || !newTitle.trim()) return
     
     try {
-      const response = await fetch(`/api/videos/videos/${id}/`, {
+      const response = await authFetch(`/api/videos/videos/${id}/`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: newTitle.trim() })
@@ -389,7 +399,7 @@ function VideoEditor() {
 
   const fetchVideo = async () => {
     try {
-      const response = await fetch(`/api/videos/videos/${id}/`)
+      const response = await authFetch(`/api/videos/videos/${id}/`)
       if (!response.ok) {
         throw new Error('Vídeo não encontrado')
       }
@@ -408,7 +418,7 @@ function VideoEditor() {
       let hasElements = false
       let loadedElements = []
       try {
-        const elementsResponse = await fetch(`/api/videos/videos/${id}/elements/`)
+        const elementsResponse = await authFetch(`/api/videos/videos/${id}/elements/`)
         if (elementsResponse.ok) {
           const savedElements = await elementsResponse.json()
           if (savedElements && savedElements.length > 0) {
@@ -435,7 +445,7 @@ function VideoEditor() {
       // Try to load existing rhythm grid
       let hasRhythmGrid = false
       try {
-        const gridResponse = await fetch(`/api/videos/videos/${id}/rhythm_grid/`)
+        const gridResponse = await authFetch(`/api/videos/videos/${id}/rhythm_grid/`)
         if (gridResponse.ok) {
           const gridData = await gridResponse.json()
           setBpmConfig({
@@ -453,7 +463,7 @@ function VideoEditor() {
       // If no rhythm grid exists, analyze the video to detect BPM and downbeat
       if (!hasRhythmGrid && data.file_url) {
         try {
-          const analyzeResponse = await fetch(`/api/videos/videos/${id}/analyze_bpm/`, {
+          const analyzeResponse = await authFetch(`/api/videos/videos/${id}/analyze_bpm/`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({})
@@ -479,7 +489,7 @@ function VideoEditor() {
       
       // Try to load waveform data
       try {
-        const waveformResponse = await fetch(`/api/videos/videos/${id}/waveform/`)
+        const waveformResponse = await authFetch(`/api/videos/videos/${id}/waveform/`)
         if (waveformResponse.ok) {
           const waveformJson = await waveformResponse.json()
           setWaveformData(waveformJson.data)
@@ -529,6 +539,12 @@ function VideoEditor() {
     
     const segmentEndInVideo = segment.endTime || originalDuration
     
+    // Apply playback rate for current segment
+    const segmentSpeed = segment.speed || 1.0
+    if (Math.abs(videoRef.current.playbackRate - segmentSpeed) > 0.01) {
+      videoRef.current.playbackRate = segmentSpeed
+    }
+    
     // Calculate timeline position for this segment
     let segmentStartInTimeline = 0
     for (let i = 0; i < currentSegmentIndex; i++) {
@@ -548,6 +564,9 @@ function VideoEditor() {
         isSeekingRef.current = true
         videoRef.current.currentTime = nextSegment.startTime
         
+        // Apply speed of the next segment
+        videoRef.current.playbackRate = nextSegment.speed || 1.0
+        
         // Calculate new timeline time
         const segmentDuration = segmentEndInVideo - segment.startTime
         setCurrentTime(segmentStartInTimeline + segmentDuration)
@@ -558,6 +577,7 @@ function VideoEditor() {
       } else {
         // No more segments, stop playback
         videoRef.current.pause()
+        videoRef.current.playbackRate = 1.0
         setIsPlaying(false)
         setCurrentTime(duration)
       }
@@ -597,6 +617,8 @@ function VideoEditor() {
             const segmentDuration = (segment.endTime || originalDuration) - segment.startTime
             if (currentTime < accumulatedTime + segmentDuration) {
               currentSegmentIndexRef.current = i
+              // Apply speed of the segment we're about to play
+              videoRef.current.playbackRate = segment.speed || 1.0
               break
             }
             accumulatedTime += segmentDuration
@@ -899,6 +921,212 @@ function VideoEditor() {
     setVideoSegments(newSegments)
   }, [videoSegments])
 
+  // === BAR SELECTION HELPERS ===
+  
+  // Get timeline bars - same logic as Timeline's getTimelineBars, plus originalTimeStart/End for isolateBarSelection
+  const getTimelineBars = useCallback(() => {
+    if (!bpmConfig || !bpmConfig.bpm || bpmConfig.bpm <= 0) return []
+    
+    const { bpm, timeSignatureNum = 4, offsetStart = 0 } = bpmConfig
+    const barDuration = (60.0 / bpm) * timeSignatureNum
+    
+    const bars = []
+    let globalBarIndex = 1
+    let accumulatedTimelineTime = 0
+    
+    for (let segIdx = 0; segIdx < videoSegments.length; segIdx++) {
+      const segment = videoSegments[segIdx]
+      const segStart = segment.startTime
+      const segEnd = segment.endTime || originalDuration
+      const segDuration = segEnd - segStart
+      
+      const effectiveStart = Math.max(segStart, offsetStart)
+      if (effectiveStart >= segEnd) {
+        accumulatedTimelineTime += segDuration
+        continue
+      }
+      
+      const firstBarNum = Math.floor((effectiveStart - offsetStart) / barDuration) + 1
+      
+      let barNum = firstBarNum
+      while (true) {
+        const barOrigStart = offsetStart + (barNum - 1) * barDuration
+        const barOrigEnd = barOrigStart + barDuration
+        
+        const clippedStart = Math.max(barOrigStart, segStart)
+        const clippedEnd = Math.min(barOrigEnd, segEnd)
+        
+        if (clippedStart >= segEnd) break
+        if (clippedEnd - clippedStart < 0.001) { barNum++; continue }
+        
+        const tlStart = accumulatedTimelineTime + (clippedStart - segStart)
+        const tlEnd = accumulatedTimelineTime + (clippedEnd - segStart)
+        
+        bars.push({
+          barNumber: globalBarIndex,
+          originalBarNumber: barNum,
+          timelineStart: tlStart,
+          timelineEnd: tlEnd,
+          segmentIndex: segIdx,
+          segmentId: segment.id,
+          originalTimeStart: clippedStart,
+          originalTimeEnd: clippedEnd
+        })
+        globalBarIndex++
+        barNum++
+      }
+      
+      accumulatedTimelineTime += segDuration
+    }
+    
+    return bars
+  }, [bpmConfig, videoSegments, originalDuration])
+
+  // Split segments so that bars in the selection become their own segments.
+  // Returns new segments array with the selection isolated.
+  const isolateBarSelection = useCallback((startBar, endBar) => {
+    const allBars = getTimelineBars()
+    const selectedBars = allBars.filter(b => b.barNumber >= startBar && b.barNumber <= endBar)
+    if (selectedBars.length === 0) return { newSegments: videoSegments.map(s => ({ ...s })), affectedSegmentIds: [] }
+    
+    // Group selected bars by segment
+    const barsBySegment = new Map()
+    for (const bar of selectedBars) {
+      if (!barsBySegment.has(bar.segmentIndex)) {
+        barsBySegment.set(bar.segmentIndex, [])
+      }
+      barsBySegment.get(bar.segmentIndex).push(bar)
+    }
+    
+    // Build new segments array
+    const newSegments = []
+    const affectedSegmentIds = [] // IDs of segments that contain the selection
+    
+    for (let segIdx = 0; segIdx < videoSegments.length; segIdx++) {
+      const segment = videoSegments[segIdx]
+      const segStart = segment.startTime
+      const segEnd = segment.endTime || originalDuration
+      
+      if (!barsBySegment.has(segIdx)) {
+        // This segment is not affected, keep as is
+        newSegments.push({ ...segment })
+        continue
+      }
+      
+      const segBars = barsBySegment.get(segIdx)
+      const selOrigStart = segBars[0].originalTimeStart
+      const selOrigEnd = segBars[segBars.length - 1].originalTimeEnd
+      
+      // Create up to 3 parts: before selection, selection, after selection
+      
+      // Part before selection
+      if (selOrigStart > segStart + 0.001) {
+        newSegments.push({
+          id: generateId(),
+          startTime: segStart,
+          endTime: selOrigStart,
+          speed: segment.speed
+        })
+      }
+      
+      // Selection part
+      const selSegment = {
+        id: generateId(),
+        startTime: selOrigStart,
+        endTime: selOrigEnd,
+        speed: segment.speed,
+        _isSelection: true // marker for the caller
+      }
+      newSegments.push(selSegment)
+      affectedSegmentIds.push(selSegment.id)
+      
+      // Part after selection
+      if (selOrigEnd < segEnd - 0.001) {
+        newSegments.push({
+          id: generateId(),
+          startTime: selOrigEnd,
+          endTime: segEnd,
+          speed: segment.speed
+        })
+      }
+    }
+    
+    return { newSegments, affectedSegmentIds }
+  }, [videoSegments, originalDuration, getTimelineBars])
+
+  // === BAR SELECTION ACTIONS ===
+  
+  // Remove selected bars from the video
+  const handleBarSelectionRemove = useCallback(() => {
+    if (!barSelection) return
+    const { startBar, endBar } = barSelection
+    
+    const { newSegments, affectedSegmentIds } = isolateBarSelection(startBar, endBar)
+    
+    // Remove the selection segments
+    const finalSegments = newSegments.filter(s => !s._isSelection)
+    
+    // Clean up _isSelection markers
+    finalSegments.forEach(s => delete s._isSelection)
+    
+    if (finalSegments.length === 0) {
+      alert('N\u00e3o \u00e9 poss\u00edvel remover todos os segmentos do v\u00eddeo')
+      return
+    }
+    
+    setVideoSegments(finalSegments)
+    setBarSelection(null)
+  }, [barSelection, isolateBarSelection])
+
+  // Duplicate selected bars (insert copy right after the selection)
+  const handleBarSelectionDuplicate = useCallback(() => {
+    if (!barSelection) return
+    const { startBar, endBar } = barSelection
+    
+    const { newSegments, affectedSegmentIds } = isolateBarSelection(startBar, endBar)
+    
+    // Find the selection segments and duplicate them right after
+    const finalSegments = []
+    for (const seg of newSegments) {
+      finalSegments.push({ ...seg })
+      delete finalSegments[finalSegments.length - 1]._isSelection
+      
+      if (seg._isSelection) {
+        // Insert a duplicate
+        finalSegments.push({
+          id: generateId(),
+          startTime: seg.startTime,
+          endTime: seg.endTime,
+          speed: seg.speed
+        })
+      }
+    }
+    
+    setVideoSegments(finalSegments)
+    setBarSelection(null)
+  }, [barSelection, isolateBarSelection])
+
+  // Change speed of selected bars
+  const handleBarSelectionSpeed = useCallback((speed) => {
+    if (!barSelection) return
+    const { startBar, endBar } = barSelection
+    
+    const { newSegments, affectedSegmentIds } = isolateBarSelection(startBar, endBar)
+    
+    // Set speed on the selection segments
+    const finalSegments = newSegments.map(seg => {
+      const cleaned = { ...seg }
+      if (cleaned._isSelection) {
+        cleaned.speed = speed
+      }
+      delete cleaned._isSelection
+      return cleaned
+    })
+    
+    setVideoSegments(finalSegments)
+    setBarSelection(null)
+  }, [barSelection, isolateBarSelection])
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -927,10 +1155,19 @@ function VideoEditor() {
         e.preventDefault()
         duplicateElement(selectedElementId)
       }
-      // Delete or Backspace - Delete element or video segment
+      // Escape - Clear bar selection
+      else if (e.key === 'Escape') {
+        if (barSelection) {
+          e.preventDefault()
+          setBarSelection(null)
+        }
+      }
+      // Delete or Backspace - Delete element, bar selection, or video segment
       else if ((e.key === 'Delete' || e.key === 'Backspace')) {
         e.preventDefault()
-        if (selectedElementId) {
+        if (barSelection) {
+          handleBarSelectionRemove()
+        } else if (selectedElementId) {
           deleteElement(selectedElementId)
         } else if (selectedSegmentId) {
           removeVideoSegment(selectedSegmentId)
@@ -950,7 +1187,7 @@ function VideoEditor() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedElementId, selectedSegmentId, clipboardElement, copyElement, pasteElement, duplicateElement, deleteElement, undo, redo, cutVideoAtCurrentTime, duplicateVideoSegment, removeVideoSegment])
+  }, [selectedElementId, selectedSegmentId, clipboardElement, copyElement, pasteElement, duplicateElement, deleteElement, undo, redo, cutVideoAtCurrentTime, duplicateVideoSegment, removeVideoSegment, barSelection, handleBarSelectionRemove])
 
   // Cut management
   const addCut = useCallback(() => {
@@ -966,9 +1203,16 @@ function VideoEditor() {
     setCuts(prev => prev.filter(c => c !== cutTime))
   }, [])
 
-  // Export video with elements
+  // Export video with elements — requires authentication
   const handleExportVideo = async () => {
     if (!video || !video.id) return
+    
+    // Gate export behind authentication
+    if (!isAuthenticated) {
+      setAuthModalReason('export')
+      setShowAuthModal(true)
+      return
+    }
     
     setExporting(true)
     try {
@@ -992,7 +1236,7 @@ function VideoEditor() {
         previewHeight = rect.height
       }
       
-      const response = await fetch(`/api/videos/videos/${video.id}/export_with_elements/`, {
+      const response = await authFetch(`/api/videos/videos/${video.id}/export_with_elements/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1215,6 +1459,31 @@ function VideoEditor() {
               </div>
             )}
           </div>
+
+          {/* Auth / User button */}
+          {isAuthenticated ? (
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 rounded-lg text-sm">
+                <User className="w-4 h-4 text-blue-400" />
+                <span className="text-gray-300 max-w-[120px] truncate">{user?.full_name || user?.email}</span>
+              </div>
+              <button
+                onClick={logout}
+                className="p-1.5 rounded-lg hover:bg-gray-700 text-gray-400 hover:text-white transition-colors"
+                title="Sair"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => { setAuthModalReason('default'); setShowAuthModal(true) }}
+              className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              <LogIn className="w-4 h-4" />
+              <span>Entrar</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1282,6 +1551,11 @@ function VideoEditor() {
             onDeleteElement={deleteElement}
             clipboardElement={clipboardElement}
             bpmConfig={bpmConfig}
+            barSelection={barSelection}
+            onBarSelectionChange={setBarSelection}
+            onBarSelectionRemove={handleBarSelectionRemove}
+            onBarSelectionDuplicate={handleBarSelectionDuplicate}
+            onBarSelectionSpeed={handleBarSelectionSpeed}
           />
         </div>
 
@@ -1294,6 +1568,13 @@ function VideoEditor() {
           onUpdateBpmConfig={updateBpmConfig}
         />
       </div>
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        reason={authModalReason}
+      />
     </div>
   )
 }
