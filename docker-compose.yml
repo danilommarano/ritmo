@@ -48,11 +48,56 @@ services:
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
       - STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY:-}
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+      # Celery / Redis
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - USE_ASYNC_EXPORT=${USE_ASYNC_EXPORT:-false}
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     stdin_open: true
     tty: true
+
+  redis:
+    image: redis:7-alpine
+    container_name: ritmo_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ritmo_celery_worker
+    command: >
+      celery -A ritmo worker
+      --loglevel=info
+      --concurrency=2
+      -Q default,export_high,export_normal,export_low
+    volumes:
+      - ./backend:/app
+      - media_files:/app/media
+    environment:
+      - DEBUG=True
+      - DATABASE_URL=postgresql://ritmo_user:ritmo_password@postgres:5432/ritmo_db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - USE_ASYNC_EXPORT=${USE_ASYNC_EXPORT:-false}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   frontend:
     build:
@@ -78,3 +123,4 @@ services:
 volumes:
   postgres_data:
   media_files:
+  redis_data:

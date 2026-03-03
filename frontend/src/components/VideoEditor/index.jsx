@@ -1268,10 +1268,63 @@ function VideoEditor() {
         return
       }
       
+      // ── Async export (202 Accepted) → poll for completion ──
+      if (response.status === 202) {
+        const asyncData = await response.json()
+        const jobId = asyncData.export_job_id
+        setShowExportDropdown(false)
+        
+        // Poll every 3 seconds until done
+        const poll = async () => {
+          try {
+            const statusRes = await authFetch(`/api/videos/videos/${video.id}/export_status/?job_id=${jobId}`)
+            if (!statusRes.ok) throw new Error('Erro ao verificar status')
+            const statusData = await statusRes.json()
+            
+            if (statusData.status === 'completed' && statusData.download_ready) {
+              // Download the file
+              const dlRes = await authFetch(`/api/videos/videos/${video.id}/export_download/?job_id=${jobId}`)
+              if (dlRes.ok) {
+                const blob = await dlRes.blob()
+                const url = window.URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `${video.title}_with_elements.mp4`
+                document.body.appendChild(a)
+                a.click()
+                window.URL.revokeObjectURL(url)
+                document.body.removeChild(a)
+              }
+              setExporting(false)
+              alert('Vídeo exportado com sucesso!')
+              // Refresh billing
+              if (isAuthenticated) {
+                authFetch('/api/billing/status/')
+                  .then(res => res.ok ? res.json() : null)
+                  .then(data => { if (data) setBillingInfo(data) })
+                  .catch(() => {})
+              }
+            } else if (statusData.status === 'failed') {
+              setExporting(false)
+              alert(`Erro no export: ${statusData.error_message || 'erro desconhecido'}`)
+            } else {
+              // Still processing, poll again
+              setTimeout(poll, 3000)
+            }
+          } catch (pollErr) {
+            setExporting(false)
+            alert('Erro ao verificar status do export: ' + pollErr.message)
+          }
+        }
+        setTimeout(poll, 3000)
+        return
+      }
+      
       if (!response.ok) {
         throw new Error('Falha ao exportar vídeo')
       }
       
+      // ── Sync export → direct file download ──
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')

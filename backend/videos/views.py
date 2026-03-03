@@ -508,6 +508,14 @@ class VideoViewSet(viewsets.ModelViewSet):
         preview_width = request.data.get('preview_width')
         preview_height = request.data.get('preview_height')
         
+        # Build video metadata dict (used in both sync and async paths)
+        video_metadata = {
+            'width': video.width,
+            'height': video.height,
+            'duration': video.duration,
+            'fps': video.fps
+        }
+        
         # ── Billing: reserve export credits ──
         export_job = None
         user = request.user
@@ -583,20 +591,48 @@ class VideoViewSet(viewsets.ModelViewSet):
                 import logging
                 logging.getLogger(__name__).warning(f"Billing check skipped: {billing_err}")
         
+        # ── Async export via Celery (when USE_ASYNC_EXPORT=True) ──
+        from django.conf import settings as django_settings
+        use_async = getattr(django_settings, 'USE_ASYNC_EXPORT', False)
+        
+        if use_async and export_job:
+            from .tasks import run_export, PRIORITY_QUEUE_MAP
+            
+            # Store all export params in the job so the Celery task is self-contained
+            export_job.export_params = {
+                'elements': elements,
+                'start_time': start_time,
+                'end_time': end_time,
+                'video_metadata': video_metadata,
+                'bpm_config': bpm_config,
+                'video_segments': video_segments,
+                'preview_width': preview_width,
+                'preview_height': preview_height,
+            }
+            export_job.save(update_fields=['export_params'])
+            
+            queue = PRIORITY_QUEUE_MAP.get(export_job.priority, 'export_normal')
+            task = run_export.apply_async(
+                args=[export_job.id],
+                queue=queue,
+            )
+            export_job.celery_task_id = task.id
+            export_job.save(update_fields=['celery_task_id'])
+            
+            return Response({
+                'mode': 'async',
+                'export_job_id': export_job.id,
+                'status': 'queued',
+                'detail': 'Export enfileirado. Use /api/videos/videos/{id}/export_status/?job_id=... para acompanhar.',
+            }, status=status.HTTP_202_ACCEPTED)
+        
+        # ── Sync export (default for dev) ──
         try:
             if export_job:
                 from django.utils import timezone as tz
                 export_job.status = 'processing'
                 export_job.started_at = tz.now()
                 export_job.save(update_fields=['status', 'started_at'])
-            
-            # Get video metadata
-            video_metadata = {
-                'width': video.width,
-                'height': video.height,
-                'duration': video.duration,
-                'fps': video.fps
-            }
             
             output_path = export_video_with_elements(
                 video.file.path,
@@ -659,6 +695,80 @@ class VideoViewSet(viewsets.ModelViewSet):
                 {'detail': f'Error exporting video: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+    
+    @action(detail=True, methods=['get'])
+    def export_status(self, request, pk=None):
+        """
+        Poll export job status.
+        GET /api/videos/videos/{id}/export_status/?job_id=123
+        """
+        job_id = request.query_params.get('job_id')
+        if not job_id:
+            return Response({'detail': 'job_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            from billing.models import ExportJob
+            job = ExportJob.objects.get(id=job_id, video_id=pk)
+            
+            # Verify ownership
+            user = request.user
+            if user.is_authenticated and job.user_id != user.id:
+                return Response({'detail': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+            
+            data = {
+                'job_id': job.id,
+                'status': job.status,
+                'resolution': job.resolution,
+                'priority': job.priority,
+                'credits_consumed': float(job.credits_consumed),
+                'created_at': job.created_at.isoformat() if job.created_at else None,
+                'started_at': job.started_at.isoformat() if job.started_at else None,
+                'completed_at': job.completed_at.isoformat() if job.completed_at else None,
+                'error_message': job.error_message if job.status == 'failed' else '',
+            }
+            
+            # Include download URL if completed
+            if job.status == 'completed' and job.output_file_url:
+                data['download_ready'] = True
+            
+            return Response(data)
+        except Exception:
+            return Response({'detail': 'Job not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    @action(detail=True, methods=['get'])
+    def export_download(self, request, pk=None):
+        """
+        Download the output file for a completed async export.
+        GET /api/videos/videos/{id}/export_download/?job_id=123
+        """
+        job_id = request.query_params.get('job_id')
+        if not job_id:
+            return Response({'detail': 'job_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            from billing.models import ExportJob
+            job = ExportJob.objects.select_related('video').get(id=job_id, video_id=pk)
+            
+            # Verify ownership
+            user = request.user
+            if user.is_authenticated and job.user_id != user.id:
+                return Response({'detail': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+            
+            if job.status != 'completed' or not job.output_file_url:
+                return Response({'detail': 'Export not ready'}, status=status.HTTP_404_NOT_FOUND)
+            
+            output_path = job.output_file_url
+            if not os.path.exists(output_path):
+                return Response({'detail': 'Export file not found on disk'}, status=status.HTTP_404_NOT_FOUND)
+            
+            response = FileResponse(
+                open(output_path, 'rb'),
+                content_type='video/mp4'
+            )
+            response['Content-Disposition'] = f'attachment; filename="{job.video.title}_with_elements.mp4"'
+            return response
+        except Exception:
+            return Response({'detail': 'Job not found'}, status=status.HTTP_404_NOT_FOUND)
 
 
 class RhythmGridViewSet(viewsets.ModelViewSet):

@@ -253,6 +253,29 @@ STRIPE_WEBHOOK_SECRET = config('STRIPE_WEBHOOK_SECRET', default='')
 # Credit pricing
 CREDIT_PRICE_PER_MINUTE_BRL = config('CREDIT_PRICE_PER_MINUTE_BRL', default=0.50, cast=float)
 
+# Celery / Redis settings
+CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://redis:6379/0')
+CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default='redis://redis:6379/0')
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 1800  # 30 min hard limit
+CELERY_TASK_SOFT_TIME_LIMIT = 1500  # 25 min soft limit
+
+# Priority queues: Creator=high(0-3), Pro=normal(4-6), Basic=low(7-9)
+CELERY_TASK_QUEUES = {
+    'export_high': {'exchange': 'export', 'routing_key': 'export.high'},
+    'export_normal': {'exchange': 'export', 'routing_key': 'export.normal'},
+    'export_low': {'exchange': 'export', 'routing_key': 'export.low'},
+    'default': {'exchange': 'default', 'routing_key': 'default'},
+}
+CELERY_TASK_DEFAULT_QUEUE = 'default'
+
+# Whether to use async exports (set to False for dev/sync mode)
+USE_ASYNC_EXPORT = config('USE_ASYNC_EXPORT', default=False, cast=bool)
+
 # Email settings (console backend for dev, SMTP for production)
 EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Ritmo <noreply@ritmo.app>')

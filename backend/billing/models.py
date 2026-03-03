@@ -371,8 +371,12 @@ class ExportJob(TimeStampedModel):
     completed_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(blank=True)
 
-    output_file_url = models.URLField(blank=True)
+    output_file_url = models.TextField(blank=True)
     output_file_size = models.BigIntegerField(default=0)
+
+    # Stores serialised export parameters for async Celery task
+    export_params = models.JSONField(null=True, blank=True)
+    celery_task_id = models.CharField(max_length=255, blank=True)
 
     class Meta:
         ordering = ['-created_at']
