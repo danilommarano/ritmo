@@ -69,7 +69,7 @@ help:
 ## Sobe containers para desenvolvimento
 dev-up:
 	@echo "$(GREEN)🚀 Subindo containers para desenvolvimento...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) up --build --remove-orphans --force-recreate -d
+	docker compose -f $(COMPOSE_FILE_DEV) up --build --remove-orphans --force-recreate -d
 	@echo "$(GREEN)✅ Containers de desenvolvimento iniciados!$(NC)"
 	@echo "$(YELLOW)Frontend: http://localhost:5173$(NC)"
 	@echo "$(YELLOW)Backend: http://localhost:8000$(NC)"
@@ -78,34 +78,34 @@ dev-up:
 ## Para containers de desenvolvimento
 dev-down:
 	@echo "$(RED)🛑 Parando containers de desenvolvimento...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) down
+	docker compose -f $(COMPOSE_FILE_DEV) down
 	@echo "$(GREEN)✅ Containers de desenvolvimento parados!$(NC)"
 
 ## Reinicia containers de desenvolvimento
 dev-restart:
 	@echo "$(YELLOW)🔄 Reiniciando containers de desenvolvimento...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) restart
+	docker compose -f $(COMPOSE_FILE_DEV) restart
 	@echo "$(GREEN)✅ Containers de desenvolvimento reiniciados!$(NC)"
 
 ## Reconstrói imagens de desenvolvimento
 dev-build:
 	@echo "$(BLUE)🔨 Reconstruindo imagens de desenvolvimento...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) build --no-cache
+	docker compose -f $(COMPOSE_FILE_DEV) build --no-cache
 	@echo "$(GREEN)✅ Imagens de desenvolvimento reconstruídas!$(NC)"
 
 ## Reconstrói e sobe containers de desenvolvimento
 dev-rebuild:
 	@echo "$(BLUE)🔨 Reconstruindo e subindo containers de desenvolvimento...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) up -d --build
+	docker compose -f $(COMPOSE_FILE_DEV) up -d --build
 	@echo "$(GREEN)✅ Containers de desenvolvimento reconstruídos e iniciados!$(NC)"
 
 ## Mostra logs de desenvolvimento
 dev-logs:
-	docker-compose -f $(COMPOSE_FILE_DEV) logs -f
+	docker compose -f $(COMPOSE_FILE_DEV) logs -f
 
 ## Mostra logs de um serviço específico (ex: make dev-logs-service SERVICE=backend)
 dev-logs-service:
-	docker-compose -f $(COMPOSE_FILE_DEV) logs -f $(SERVICE)
+	docker compose -f $(COMPOSE_FILE_DEV) logs -f $(SERVICE)
 
 # ================================
 # PRODUÇÃO
@@ -119,36 +119,36 @@ prod-up:
 		echo "$(YELLOW)💡 Criando arquivo de produção baseado no desenvolvimento...$(NC)"; \
 		$(MAKE) create-prod-compose; \
 	fi
-	docker-compose -f $(COMPOSE_FILE_PROD) up -d
+	docker compose -f $(COMPOSE_FILE_PROD) up -d
 	@echo "$(GREEN)✅ Containers de produção iniciados!$(NC)"
 
 ## Para containers de produção
 prod-down:
 	@echo "$(RED)🛑 Parando containers de produção...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_PROD) down
+	docker compose -f $(COMPOSE_FILE_PROD) down
 	@echo "$(GREEN)✅ Containers de produção parados!$(NC)"
 
 ## Reinicia containers de produção
 prod-restart:
 	@echo "$(YELLOW)🔄 Reiniciando containers de produção...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_PROD) restart
+	docker compose -f $(COMPOSE_FILE_PROD) restart
 	@echo "$(GREEN)✅ Containers de produção reiniciados!$(NC)"
 
 ## Reconstrói imagens de produção
 prod-build:
 	@echo "$(BLUE)🔨 Reconstruindo imagens de produção...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_PROD) build --no-cache
+	docker compose -f $(COMPOSE_FILE_PROD) build --no-cache
 	@echo "$(GREEN)✅ Imagens de produção reconstruídas!$(NC)"
 
 ## Reconstrói e sobe containers de produção
 prod-rebuild:
 	@echo "$(BLUE)🔨 Reconstruindo e subindo containers de produção...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_PROD) up -d --build
+	docker compose -f $(COMPOSE_FILE_PROD) up -d --build
 	@echo "$(GREEN)✅ Containers de produção reconstruídos e iniciados!$(NC)"
 
 ## Mostra logs de produção
 prod-logs:
-	docker-compose -f $(COMPOSE_FILE_PROD) logs -f
+	docker compose -f $(COMPOSE_FILE_PROD) logs -f
 
 # ================================
 # TESTES
@@ -162,25 +162,25 @@ test-up:
 		echo "$(YELLOW)💡 Criando arquivo de testes baseado no desenvolvimento...$(NC)"; \
 		$(MAKE) create-test-compose; \
 	fi
-	docker-compose -f $(COMPOSE_FILE_TEST) up -d
+	docker compose -f $(COMPOSE_FILE_TEST) up -d
 	@echo "$(GREEN)✅ Containers de testes iniciados!$(NC)"
 
 ## Para containers de testes
 test-down:
 	@echo "$(RED)🛑 Parando containers de testes...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_TEST) down
+	docker compose -f $(COMPOSE_FILE_TEST) down
 	@echo "$(GREEN)✅ Containers de testes parados!$(NC)"
 
 ## Executa suite de testes
 test-run:
 	@echo "$(BLUE)🧪 Executando testes...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_TEST) exec backend python manage.py test
+	docker compose -f $(COMPOSE_FILE_TEST) exec backend python manage.py test
 	@echo "$(GREEN)✅ Testes executados!$(NC)"
 
 ## Limpa ambiente de testes
 test-clean:
 	@echo "$(YELLOW)🧹 Limpando ambiente de testes...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_TEST) down -v
+	docker compose -f $(COMPOSE_FILE_TEST) down -v
 	@echo "$(GREEN)✅ Ambiente de testes limpo!$(NC)"
 
 # ================================
@@ -194,22 +194,22 @@ status:
 
 ## Mostra logs de todos os serviços
 logs:
-	docker-compose -f $(COMPOSE_FILE_DEV) logs -f
+	docker compose -f $(COMPOSE_FILE_DEV) logs -f
 
 ## Acessa shell do container backend
 shell-backend:
 	@echo "$(BLUE)🐚 Acessando shell do backend...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) exec backend bash
+	docker compose -f $(COMPOSE_FILE_DEV) exec backend bash
 
 ## Acessa shell do container frontend
 shell-frontend:
 	@echo "$(BLUE)🐚 Acessando shell do frontend...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) exec frontend sh
+	docker compose -f $(COMPOSE_FILE_DEV) exec frontend sh
 
 ## Acessa shell do banco de dados
 shell-db:
 	@echo "$(BLUE)🐚 Acessando shell do PostgreSQL...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) exec postgres psql -U ritmo_user -d ritmo_db
+	docker compose -f $(COMPOSE_FILE_DEV) exec postgres psql -U ritmo_user -d ritmo_db
 
 ## Remove containers, volumes e imagens não utilizadas
 clean:
@@ -222,9 +222,9 @@ clean:
 clean-all:
 	@echo "$(RED)⚠️  ATENÇÃO: Isso irá remover TODOS os containers, volumes e imagens!$(NC)"
 	@read -p "Tem certeza? (y/N): " confirm && [ "$$confirm" = "y" ] || exit 1
-	docker-compose -f $(COMPOSE_FILE_DEV) down -v --rmi all
-	@if [ -f $(COMPOSE_FILE_PROD) ]; then docker-compose -f $(COMPOSE_FILE_PROD) down -v --rmi all; fi
-	@if [ -f $(COMPOSE_FILE_TEST) ]; then docker-compose -f $(COMPOSE_FILE_TEST) down -v --rmi all; fi
+	docker compose -f $(COMPOSE_FILE_DEV) down -v --rmi all
+	@if [ -f $(COMPOSE_FILE_PROD) ]; then docker compose -f $(COMPOSE_FILE_PROD) down -v --rmi all; fi
+	@if [ -f $(COMPOSE_FILE_TEST) ]; then docker compose -f $(COMPOSE_FILE_TEST) down -v --rmi all; fi
 	docker system prune -af
 	@echo "$(GREEN)✅ Tudo removido!$(NC)"
 
@@ -236,7 +236,7 @@ clean-all:
 backup:
 	@echo "$(BLUE)💾 Fazendo backup do banco de dados...$(NC)"
 	@mkdir -p backups
-	docker-compose -f $(COMPOSE_FILE_DEV) exec postgres pg_dump -U ritmo_user ritmo_db > backups/backup_$(shell date +%Y%m%d_%H%M%S).sql
+	docker compose -f $(COMPOSE_FILE_DEV) exec postgres pg_dump -U ritmo_user ritmo_db > backups/backup_$(shell date +%Y%m%d_%H%M%S).sql
 	@echo "$(GREEN)✅ Backup criado em backups/$(NC)"
 
 ## Restaura backup do banco de dados (ex: make restore BACKUP=backup_20240101_120000.sql)
@@ -246,7 +246,7 @@ restore:
 		exit 1; \
 	fi
 	@echo "$(BLUE)📥 Restaurando backup $(BACKUP)...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) exec -T postgres psql -U ritmo_user -d ritmo_db < backups/$(BACKUP)
+	docker compose -f $(COMPOSE_FILE_DEV) exec -T postgres psql -U ritmo_user -d ritmo_db < backups/$(BACKUP)
 	@echo "$(GREEN)✅ Backup restaurado!$(NC)"
 
 # ================================
@@ -266,33 +266,33 @@ setup:
 ## Executa migrações do Django
 migrate:
 	@echo "$(BLUE)🔄 Executando migrações...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) exec backend python manage.py migrate
+	docker compose -f $(COMPOSE_FILE_DEV) exec backend python manage.py migrate
 	@echo "$(GREEN)✅ Migrações executadas!$(NC)"
 
 ## Cria superusuário Django
 superuser:
 	@echo "$(BLUE)👤 Criando superusuário...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) exec backend python manage.py createsuperuser
+	docker compose -f $(COMPOSE_FILE_DEV) exec backend python manage.py createsuperuser
 
 ## Coleta arquivos estáticos
 collectstatic:
 	@echo "$(BLUE)📁 Coletando arquivos estáticos...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) exec backend python manage.py collectstatic --noinput
+	docker compose -f $(COMPOSE_FILE_DEV) exec backend python manage.py collectstatic --noinput
 	@echo "$(GREEN)✅ Arquivos estáticos coletados!$(NC)"
 
 # ================================
 # CRIAÇÃO DE ARQUIVOS DE COMPOSE
 # ================================
 
-## Cria arquivo docker-compose para produção
+## Cria arquivo docker compose para produção
 create-prod-compose:
-	@echo "$(BLUE)📝 Criando docker-compose.prod.yml...$(NC)"
+	@echo "$(BLUE)📝 Criando docker compose.prod.yml...$(NC)"
 	@cp $(COMPOSE_FILE_DEV) $(COMPOSE_FILE_PROD)
 	@echo "$(YELLOW)⚠️  Lembre-se de ajustar as configurações de produção no arquivo $(COMPOSE_FILE_PROD)$(NC)"
 
-## Cria arquivo docker-compose para testes
+## Cria arquivo docker compose para testes
 create-test-compose:
-	@echo "$(BLUE)📝 Criando docker-compose.test.yml...$(NC)"
+	@echo "$(BLUE)📝 Criando docker compose.test.yml...$(NC)"
 	@cp $(COMPOSE_FILE_DEV) $(COMPOSE_FILE_TEST)
 	@echo "$(YELLOW)⚠️  Lembre-se de ajustar as configurações de teste no arquivo $(COMPOSE_FILE_TEST)$(NC)"
 
@@ -308,7 +308,7 @@ stats:
 ## Mostra informações detalhadas dos containers
 inspect:
 	@echo "$(BLUE)🔍 Informações dos containers:$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) ps
+	docker compose -f $(COMPOSE_FILE_DEV) ps
 
 # ================================
 # DESENVOLVIMENTO AVANÇADO
@@ -317,21 +317,21 @@ inspect:
 ## Instala dependências do backend
 install-backend:
 	@echo "$(BLUE)📦 Instalando dependências do backend...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) exec backend pip install -r requirements.txt
+	docker compose -f $(COMPOSE_FILE_DEV) exec backend pip install -r requirements.txt
 	@echo "$(GREEN)✅ Dependências do backend instaladas!$(NC)"
 
 ## Instala dependências do frontend
 install-frontend:
 	@echo "$(BLUE)📦 Instalando dependências do frontend...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) exec frontend npm install
+	docker compose -f $(COMPOSE_FILE_DEV) exec frontend npm install
 	@echo "$(GREEN)✅ Dependências do frontend instaladas!$(NC)"
 
 ## Executa linting no backend
 lint-backend:
 	@echo "$(BLUE)🔍 Executando linting no backend...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) exec backend flake8 .
+	docker compose -f $(COMPOSE_FILE_DEV) exec backend flake8 .
 
 ## Executa linting no frontend
 lint-frontend:
 	@echo "$(BLUE)🔍 Executando linting no frontend...$(NC)"
-	docker-compose -f $(COMPOSE_FILE_DEV) exec frontend npm run lint
+	docker compose -f $(COMPOSE_FILE_DEV) exec frontend npm run lint
