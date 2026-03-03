@@ -126,6 +126,58 @@ export function AuthProvider({ children }) {
     }
   }, [sessionKey])
 
+  // Magic link: request code
+  const requestMagicLink = useCallback(async (email) => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/magic-link/request/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao enviar codigo')
+      }
+      return { success: true, message: data.message }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  }, [])
+
+  // Magic link: verify code
+  const verifyMagicLink = useCallback(async (email, code) => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/magic-link/verify/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || 'Codigo invalido')
+      }
+
+      setTokens({ access: data.access, refresh: data.refresh })
+
+      // After login, claim any anonymous videos
+      await claimAnonymousVideos(data.access)
+
+      // Fetch full user
+      const userRes = await fetch(`${API_BASE}/auth/user/`, {
+        headers: { 'Authorization': `Bearer ${data.access}` },
+      })
+      if (userRes.ok) {
+        setUser(await userRes.json())
+      } else {
+        setUser(data.user)
+      }
+
+      return { success: true, created: data.created }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  }, [sessionKey])
+
   // Claim anonymous videos after login
   const claimAnonymousVideos = useCallback(async (accessToken) => {
     try {
@@ -209,6 +261,8 @@ export function AuthProvider({ children }) {
     tokens,
     sessionKey,
     socialLogin,
+    requestMagicLink,
+    verifyMagicLink,
     logout,
     getAuthHeaders,
     authFetch,
