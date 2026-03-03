@@ -44,6 +44,10 @@ services:
       - APPLE_CLIENT_SECRET=${APPLE_CLIENT_SECRET:-}
       - APPLE_KEY_ID=${APPLE_KEY_ID:-}
       - APPLE_PRIVATE_KEY=${APPLE_PRIVATE_KEY:-}
+      # Stripe
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
     depends_on:
       postgres:
         condition: service_healthy

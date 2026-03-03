@@ -13,6 +13,7 @@ urlpatterns = [
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/videos/', include('videos.urls')),
     path('api/', include('core.urls')),
+    path('api/billing/', include('billing.urls')),
     # allauth account URLs (needed for OAuth callback handling)
     path('accounts/', include('allauth.urls')),
 ]

@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     # Local apps
     'core',
     'videos',
+    'billing',
 ]
 
 SITE_ID = 1
@@ -241,3 +242,11 @@ VIDEO_MAX_SIZE = 524288000  # 500 MB
 
 # Anonymous session settings
 ANONYMOUS_SESSION_EXPIRY_HOURS = config('ANONYMOUS_SESSION_EXPIRY_HOURS', default=72, cast=int)
+
+# Stripe settings
+STRIPE_SECRET_KEY = config('STRIPE_SECRET_KEY', default='')
+STRIPE_PUBLISHABLE_KEY = config('STRIPE_PUBLISHABLE_KEY', default='')
+STRIPE_WEBHOOK_SECRET = config('STRIPE_WEBHOOK_SECRET', default='')
+
+# Credit pricing
+CREDIT_PRICE_PER_MINUTE_BRL = config('CREDIT_PRICE_PER_MINUTE_BRL', default=0.50, cast=float)
