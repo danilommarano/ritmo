@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'core',
     'videos',
     'billing',
+    'classroom',
 ]
 
 SITE_ID = 1

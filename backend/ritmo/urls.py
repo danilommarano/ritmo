@@ -14,6 +14,7 @@ urlpatterns = [
     path('api/videos/', include('videos.urls')),
     path('api/', include('core.urls')),
     path('api/billing/', include('billing.urls')),
+    path('api/classroom/', include('classroom.urls')),
     # allauth account URLs (needed for OAuth callback handling)
     path('accounts/', include('allauth.urls')),
 ]
