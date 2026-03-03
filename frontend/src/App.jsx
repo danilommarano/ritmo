@@ -11,6 +11,10 @@ import PricingPage from './pages/PricingPage'
 import BillingPage from './pages/BillingPage'
 import BillingSuccess from './pages/BillingSuccess'
 import BillingCancel from './pages/BillingCancel'
+import ClassroomsPage from './pages/ClassroomsPage'
+import ClassroomDetailPage from './pages/ClassroomDetailPage'
+import AssignmentPage from './pages/AssignmentPage'
+import SubmissionReviewPage from './pages/SubmissionReviewPage'
 import './App.css'
 
 function App() {
@@ -41,6 +45,11 @@ function App() {
           <Route path="/billing" element={<BillingPage />} />
           <Route path="/billing/success" element={<BillingSuccess />} />
           <Route path="/billing/cancel" element={<BillingCancel />} />
+          {/* Classroom / Teaching Platform */}
+          <Route path="/classrooms" element={<ClassroomsPage />} />
+          <Route path="/classroom/:id" element={<ClassroomDetailPage />} />
+          <Route path="/assignment/:id" element={<AssignmentPage />} />
+          <Route path="/submission/:id/review" element={<SubmissionReviewPage />} />
           {/* OAuth callback (opened in popup) */}
           <Route path="/auth/callback/:provider" element={<AuthCallback />} />
         </Routes>
