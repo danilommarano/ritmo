@@ -539,6 +539,21 @@ function VideoEditor() {
   // Track which segment we're currently playing
   const currentSegmentIndexRef = useRef(0)
 
+  // Helper: set isSeekingRef and clear it reliably via the 'seeked' event
+  const seekVideo = useCallback((targetTime) => {
+    if (!videoRef.current) return
+    isSeekingRef.current = true
+    const video = videoRef.current
+    const fallback = setTimeout(() => { isSeekingRef.current = false }, 500)
+    const onSeeked = () => {
+      clearTimeout(fallback)
+      isSeekingRef.current = false
+      video.removeEventListener('seeked', onSeeked)
+    }
+    video.addEventListener('seeked', onSeeked)
+    video.currentTime = targetTime
+  }, [])
+
   // Video control handlers - manages playback across segments
   const handleTimeUpdate = useCallback(() => {
     if (!videoRef.current || isSeekingRef.current || !videoSegments || videoSegments.length === 0) return
@@ -549,7 +564,14 @@ function VideoEditor() {
     
     if (!segment) return
     
+    const segmentStartInVideo = segment.startTime
     const segmentEndInVideo = segment.endTime || originalDuration
+    
+    // Guard: if the video time is before the current segment's start,
+    // a previous seek hasn't fully settled yet — skip this update
+    if (actualVideoTime < segmentStartInVideo - 0.15) {
+      return
+    }
     
     // Apply playback rate for current segment
     const segmentSpeed = segment.speed || 1.0
@@ -573,8 +595,6 @@ function VideoEditor() {
         // Jump to the start of the next segment in the actual video
         const nextSegment = videoSegments[nextSegmentIndex]
         currentSegmentIndexRef.current = nextSegmentIndex
-        isSeekingRef.current = true
-        videoRef.current.currentTime = nextSegment.startTime
         
         // Apply speed of the next segment
         videoRef.current.playbackRate = nextSegment.speed || 1.0
@@ -583,9 +603,8 @@ function VideoEditor() {
         const segmentDuration = segmentEndInVideo - segment.startTime
         setCurrentTime(segmentStartInTimeline + segmentDuration)
         
-        setTimeout(() => {
-          isSeekingRef.current = false
-        }, 50)
+        // Seek using seeked-event approach (reliable, no fixed timeout)
+        seekVideo(nextSegment.startTime)
       } else {
         // No more segments, stop playback
         videoRef.current.pause()
@@ -595,11 +614,11 @@ function VideoEditor() {
       }
     } else {
       // Update timeline time based on current video position within the segment
-      const offsetInSegment = actualVideoTime - segment.startTime
-      const newTimelineTime = segmentStartInTimeline + offsetInSegment
+      const offsetInSegment = actualVideoTime - segmentStartInVideo
+      const newTimelineTime = segmentStartInTimeline + Math.max(0, offsetInSegment)
       setCurrentTime(newTimelineTime)
     }
-  }, [videoSegments, duration, originalDuration])
+  }, [videoSegments, duration, originalDuration, seekVideo])
 
   const handleLoadedMetadata = useCallback(() => {
     if (videoRef.current) {
@@ -616,10 +635,7 @@ function VideoEditor() {
         videoRef.current.pause()
       } else {
         // Before playing, ensure video is at the correct position for current timeline time
-        const actualVideoTime = timelineToVideoTime(currentTime)
-        if (Math.abs(videoRef.current.currentTime - actualVideoTime) > 0.1) {
-          videoRef.current.currentTime = actualVideoTime
-        }
+        const targetVideoTime = timelineToVideoTime(currentTime)
         
         // Update current segment index based on current timeline time
         if (videoSegments && videoSegments.length > 0) {
@@ -637,7 +653,25 @@ function VideoEditor() {
           }
         }
         
-        videoRef.current.play()
+        // Seek if needed, then play after seek completes
+        if (Math.abs(videoRef.current.currentTime - targetVideoTime) > 0.1) {
+          isSeekingRef.current = true
+          const video = videoRef.current
+          const fallback = setTimeout(() => {
+            isSeekingRef.current = false
+            video.play()
+          }, 500)
+          const onSeeked = () => {
+            clearTimeout(fallback)
+            isSeekingRef.current = false
+            video.removeEventListener('seeked', onSeeked)
+            video.play()
+          }
+          video.addEventListener('seeked', onSeeked)
+          video.currentTime = targetVideoTime
+        } else {
+          videoRef.current.play()
+        }
       }
       setIsPlaying(!isPlaying)
     }
@@ -645,10 +679,8 @@ function VideoEditor() {
 
   const handleSeek = useCallback((timelineTime) => {
     if (videoRef.current) {
-      isSeekingRef.current = true
       // Convert timeline time to actual video time
       const actualVideoTime = timelineToVideoTime(timelineTime)
-      videoRef.current.currentTime = actualVideoTime
       setCurrentTime(timelineTime)
       
       // Update current segment index based on timeline time
@@ -665,12 +697,10 @@ function VideoEditor() {
         }
       }
       
-      // Reset seeking flag after a short delay to allow video to settle
-      setTimeout(() => {
-        isSeekingRef.current = false
-      }, 100)
+      // Seek using seeked-event approach
+      seekVideo(actualVideoTime)
     }
-  }, [timelineToVideoTime, videoSegments, originalDuration])
+  }, [timelineToVideoTime, videoSegments, originalDuration, seekVideo])
 
   // Element management
   const addElement = useCallback((type) => {
